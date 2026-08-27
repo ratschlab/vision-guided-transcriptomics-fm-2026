@@ -1,0 +1,51 @@
+# Main environment. Pinned to the versions the reported results were produced with.
+#
+# The gene-side foundation models (Geneformer, scGPT, CancerFoundation) are NOT
+# here: their dependency pins conflict with each other and with this file. Each has
+# its own conda environment under envs/, and they communicate with this one through
+# parquet files (see vgtfm/embed/gene_fm.py). Nothing outside the optional `embed`
+# stage needs them.
+#
+# Install:  pip install -r requirements.txt
+# Torch:    the +cu126 build below assumes CUDA 12.6; for CPU-only, install
+#           `torch==2.10.0` from the default index instead.
+
+# core
+numpy==2.3.5
+pandas==2.3.3
+pyarrow==22.0.0
+scipy==1.16.3
+scikit-learn==1.8.0
+PyYAML==6.0.3
+tqdm==4.67.3
+
+# deep learning
+torch==2.10.0
+torchvision==0.25.0
+
+# single-cell / spatial
+anndata==0.12.10
+scanpy==1.11.5
+datasets==4.5.0
+
+# evaluation and diagnostics
+scib-metrics==0.5.9
+umap-learn==0.5.11
+decoupler==2.1.6
+
+# batch-correction methods compared in the `integrate` stage
+harmonypy==2.0.0
+bbknn==1.6.0
+scvi-tools==1.4.2
+
+# figures
+matplotlib==3.10.8
+
+# embed stage (H&E side only; the gene-side models live in envs/)
+transformers==5.1.0
+pillow==12.1.0
+
+# tests and `make lint`. Not needed to reproduce a result; the stages
+# themselves import neither.
+pytest==9.1.1
+ruff==0.16.4

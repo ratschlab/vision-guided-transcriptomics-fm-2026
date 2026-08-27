@@ -1,0 +1,119 @@
+# ═══════════════════════════════════════════════════════════════════
+# Site profiles — every machine-specific path in one file
+# ═══════════════════════════════════════════════════════════════════
+#
+# This is a template. Copy it and fill in the paths for your machine:
+#
+#   cp environments.example.yaml environments.yaml
+#
+# `environments.yaml` is deliberately not tracked, so a checkout never carries
+# one site's filesystem layout to another.
+#
+# Select a profile with `--env <name>`, or by exporting VGTFM_ENV. When neither
+# is given, `default` below applies. If the file is absent entirely, the
+# dataclass defaults in vgtfm/config.py stand and nothing breaks. The chosen
+# profile is recorded in each run's config.resolved.json and manifest, so any
+# figure names the machine layout that produced it.
+#
+#   python run.py all --config configs/default.yaml --env cluster
+#   VGTFM_ENV=cluster make all
+#
+# Precedence, lowest to highest:
+#   dataclass defaults (vgtfm/config.py)
+#     < configs/<name>.yaml
+#       < this profile
+#         < --set key=value on the command line
+#
+# Relative paths resolve against the repository root. Anything omitted from a
+# profile keeps its dataclass default, so a profile only states what differs.
+
+default: local
+
+environments:
+
+  # ── a single workstation ───────────────────────────────────────────
+  local:
+    # Interpreter holding requirements.txt. Three accepted forms:
+    #   ""                    whatever python is on PATH
+    #   vgtfm                 a named conda environment
+    #   /path/to/env          a conda prefix, or a plain venv (needs bin/python)
+    python_env: ""
+    # Holds the cached merged datasets and the raw per-cohort directories.
+    data_root: /path/to/tokenization_results
+    # Run outputs and the shared feature cache (~6 GB per substrate).
+    artifact_root: artifacts
+    # Offline HuggingFace cache; "" leaves $HF_HOME alone.
+    hf_home: ""
+
+  # ── a SLURM cluster ────────────────────────────────────────────────
+  cluster:
+    # An activate script plus an environment name — the form you type by hand,
+    # and the only one that needs no `conda` on PATH (compute nodes often lack
+    # it). Equally valid: a bare name `vgtfm`, an env prefix
+    # `/path/to/conda/envs/vgtfm`, or a venv directory containing bin/python.
+    #
+    # Whatever you name here must satisfy requirements.txt. An environment built
+    # for something else is the common case and the loud one: `preflight.sh`
+    # checks each pinned dependency by distribution name and version and reports
+    # which *stage* a gap blocks, and stages refuse rather than silently skip
+    # (see vgtfm/degraded.py). To finish a run without an optional dependency,
+    # say so explicitly, e.g.
+    #   bash slurm/submit.sh diagnose configs/default.yaml diagnostics.run_scib=false
+    # which is then recorded in that run's config.resolved.json.
+    python_env: /path/to/conda/bin/activate vgtfm
+
+    # The precomputed embeddings, exactly as the embed stage wrote them:
+    # <data_root>/<combo>/merged_dataset is a HuggingFace DatasetDict, and the
+    # combo names are the keys of `paths.merged_datasets`. Nothing is converted.
+    data_root: /path/to/tokenization_results
+
+    artifact_root: /path/to/scratch/vgtfm
+
+    # Compute nodes often have no network; keep the HF cache on shared storage.
+    hf_home: /path/to/scratch/vgtfm/models
+
+    # Raw cohorts. Usually not under data_root: that holds the tokenizer output,
+    # this holds the source data. Cohorts resolve as
+    # <raw_data_root>/<dataset_id>/<subdirs.h5ad> using configs/datasets.json,
+    # with the per-cohort exceptions below.
+    raw_data_root: /path/to/spatial_transcriptomics_data
+
+    # Exceptions to that rule. Absolute paths win outright. Keys are dataset ids.
+    # Two reasons a cohort needs one: it lives on a different filesystem from the
+    # rest, or its directory is spelled differently from its dataset id (as
+    # MOSAIC_DLBLC's is).
+    raw_h5ad:
+      10x_TuPro: /path/to/spatial_transcriptomics_data/10x_TuPro/out_all_genes/data/h5ad
+      TLS_VISIUM_USZ_kidney: /path/to/other/filesystem/TLS_VISIUM_USZ/h5ad_preprocessed
+      TLS_VISIUM_USZ_lung: /path/to/other/filesystem/TLS_VISIUM_USZ/h5ad_preprocessed
+      MOSAIC_DLBLC: /path/to/spatial_transcriptomics_data/MOSAIC_DLBCL/out_all_genes/data/h5ad
+
+    # ── SLURM ──────────────────────────────────────────────────────
+    # Some sites have no usable default partition: submitting without one fails
+    # with "Requested node configuration is not available", because the nodes
+    # sbatch falls back to cannot satisfy the CPU/memory request. Name both
+    # explicitly and neither stage can land on the wrong node.
+    slurm_cpu_partition: compute
+    slurm_gpu_partition: gpu
+    # How this site wants a GPU asked for. SLURM before 19.05 has no --gpus and
+    # only understands --gres; on newer installations this is ["--gpus=1"].
+    slurm_gpu_args: ["--gres=gpu:1"]
+    # Prepended to every sbatch: an --account, a --qos, a --nice. Empty where the
+    # site needs none.
+    slurm_extra_args: []
+    # e.g. slurm_extra_args: ["--account=my_account", "--qos=normal"]
+
+  # ── template for a new site ────────────────────────────────────────
+  # Copy, rename, fill in. Only `data_root` is genuinely required; the rest
+  # falls back to the dataclass defaults.
+  #
+  # my_site:
+  #   python_env: vgtfm
+  #   data_root: /path/to/tokenization_results
+  #   artifact_root: /path/to/scratch/vgtfm
+  #   raw_h5ad:
+  #     10x_TuPro: /path/to/10x_TuPro/out_all_genes/data/h5ad
+  #   slurm_cpu_partition: compute
+  #   slurm_gpu_partition: gpu
+  #   slurm_gpu_args: ["--gres=gpu:1"]     # or ["--gpus=1"] on newer SLURM
+  #   slurm_extra_args: ["--account=my_account"]

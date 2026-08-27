@@ -1,0 +1,36 @@
+# Run outputs and the feature cache (several GB per substrate).
+artifacts/
+
+# Job logs; the directory itself is committed because `#SBATCH --output=logs/...`
+# is resolved before the job can report that it is missing.
+logs/*
+!logs/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+*.egg-info/
+
+# Project-specific things
+MANUSCRIPT_NOTES.md
+TODO
+
+# Site profiles: absolute paths, usernames and cluster layout, none of which
+# belong in a shared checkout. environments.example.yaml is the tracked template.
+environments.yaml
+environments.*.yaml
+!environments.example.yaml
+
+# Editor and OS droppings
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.bak
+.venv/
+venv/
+.env
+

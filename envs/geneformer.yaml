@@ -1,0 +1,55 @@
+# Isolated environment for the geneformer gene-expression foundation model.
+#
+# It exists because geneformer's dependency pins conflict with those of the other
+# gene-side models and with requirements.txt. It is needed only by the optional
+# `embed` stage, and communicates with the rest of the pipeline through parquet
+# files (see vgtfm/embed/gene_fm.py) — nothing downstream imports it.
+#
+# Two steps, because Geneformer is published as a HuggingFace *model* repository
+# rather than a package, and neither pip nor git installs it directly:
+#
+#   conda env create -f envs/geneformer.yaml
+#   conda run -n vgtfm-geneformer python envs/geneformer_install.py
+#
+#   conda run -n vgtfm-geneformer python -m vgtfm.embed.gene_fm \
+#       --model geneformer --manifest <artifacts>/_embed/geneformer/manifest.json \
+#       --out-dir <artifacts>/_embed/geneformer
+#
+# Not `pip install git+https://huggingface.co/ctheodoris/Geneformer`, which upstream
+# suggests, for two independent reasons that both fail late:
+#
+#   * pip clones with `--filter=blob:none` and the HF git server does not serve the
+#     follow-up promisor fetch — `fatal: expected 'packfile'`, exit 128, at install.
+#   * the repository carries every pretrained variant as a git-lfs blob, so a clone
+#     that does succeed pulls tens of GB for a package of a few hundred kB. Turning
+#     smudging off avoids that, but the package's own gene dictionaries
+#     (`gene_median_dictionary_gc104M.pkl` and friends) are lfs too and arrive as
+#     pointer files, which surfaces only once the tokenizer runs, as
+#     `_pickle.UnpicklingError: invalid load key, 'v'` — 'v' for "version https://".
+#
+# envs/geneformer_install.py fetches code, dictionaries and weights through
+# huggingface_hub instead, which resolves lfs with no git-lfs installed and leaves
+# the weights in the cache a run without --model-dir reads.
+#
+# Geneformer ranks each spot's genes against a fixed vocabulary, so a slide gives
+# the same answer alone as in company, and the manifest is just a loop over slides.
+name: vgtfm-geneformer
+channels: [conda-forge, bioconda]
+dependencies:
+  - python=3.11
+  - pip
+  - pyarrow
+  - scipy
+  - pip:
+      - torch==2.4.1
+      - transformers==4.44.2
+      - datasets==2.21.0
+      - anndata==0.10.9
+      - scanpy==1.10.3
+      - huggingface_hub
+      # anndata 0.10.9 predates the pandas 3 string dtype and registers no writer
+      # for it, so an unpinned resolve gets as far as tokenising and then dies on
+      # `No method registered for writing ArrowStringArray`, inside the temporary
+      # h5ad the tokenizer is handed. numpy for the same reason, one release later.
+      - "pandas<3"
+      - "numpy<2"

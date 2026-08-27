@@ -1,0 +1,13 @@
+# `make lint` runs both halves of the standard: these rules, then `ruff format
+# --check`. `make format` applies the formatter.
+#
+# The rule selection is deliberately narrow — pyflakes plus pycodestyle errors and
+# warnings. The opinionated style rulesets are not enabled, because several of this
+# repository's idioms read as violations to them (`value != value` for NaN, `int()`
+# on values that are already integral but arrive from pandas as numpy scalars), and
+# a linter that reports those every run is one nobody reads. Layout is the
+# formatter's job instead, which is mechanical and needs no exceptions.
+line-length = 100
+
+[lint]
+select = ["E", "F", "W"]

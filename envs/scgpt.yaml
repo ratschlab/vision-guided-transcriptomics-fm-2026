@@ -1,0 +1,50 @@
+# Isolated environment for the scgpt gene-expression foundation model.
+#
+# It exists because scgpt's dependency pins conflict with those of the other
+# gene-side models and with requirements.txt. It is needed only by the optional
+# `embed` stage, and communicates with the rest of the pipeline through parquet
+# files (see vgtfm/embed/gene_fm.py) — nothing downstream imports it.
+#
+#   conda env create -f envs/scgpt.yaml
+#   conda run -n vgtfm-scgpt python -m vgtfm.embed.gene_fm \
+#       --model scgpt --manifest <artifacts>/_embed/scgpt/manifest.json \
+#       --out-dir <artifacts>/_embed/scgpt --model-dir /path/to/scGPT_human
+#
+# The checkpoint is a separate download (the `scGPT_human` whole-human model from the
+# repository's README) and must hold vocab.json, args.json and best_model.pt.
+#
+# flash-attn is deliberately absent. scGPT's fast attention path needs a build
+# matched to its torch pin and a GPU, and building it is the single most common way
+# this environment fails to create; without it `embed_data` runs the standard
+# attention path, which is the same computation. Install it separately where the
+# throughput is worth the trouble — the embedder detects it and uses it.
+name: vgtfm-scgpt
+channels: [conda-forge, bioconda]
+dependencies:
+  - python=3.10  # scgpt 0.2.x does not install on 3.11
+  - pip
+  - numpy<2   # scgpt 0.2.x is built against the numpy 1 ABI
+  - pyarrow
+  - pip:
+      # numpy again, because the conda pin above does not constrain pip: the pip
+      # section resolves afterwards and scanpy/anndata pull numpy 2, which leaves
+      # torch 2.1.2 importable but broken -- `Failed to initialize NumPy:
+      # _ARRAY_API not found`, a warning rather than an error, and every tensor
+      # built from an array fails later.
+      - "numpy<2"
+      - torch==2.1.2
+      - transformers==4.33.3
+      - anndata==0.10.9
+      - scanpy==1.10.3
+      - scgpt==0.2.4
+      # Same reason as envs/geneformer.yaml, which pins the same anndata: 0.10.9
+      # predates the pandas 3 string dtype and registers no writer for it, so an
+      # unpinned resolve installs a pandas this anndata cannot round-trip.
+      - "pandas<3"
+      # scanpy's seurat_v3 HVG flavour — the one scGPT selects genes with — is
+      # implemented on top of skmisc's loess and raises ImportError without it.
+      - scikit-misc==0.3.1
+      # scgpt 0.2.4 does not declare it, but `scgpt.tasks` — which is where
+      # embed_data lives — imports IPython at module level, so a freshly created
+      # environment cannot embed anything without this line.
+      - ipython

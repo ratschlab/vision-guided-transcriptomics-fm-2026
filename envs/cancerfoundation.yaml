@@ -1,0 +1,46 @@
+# Isolated environment for the cancerfoundation gene-expression foundation model.
+#
+# It exists because CancerFoundation pins torch and scanpy against versions that
+# conflict with the other gene-side models and with requirements.txt. It is needed
+# only by the optional `embed` stage, and communicates with the rest of the pipeline
+# through parquet files (see vgtfm/embed/gene_fm.py) — nothing downstream imports it.
+#
+#   conda env create -f envs/cancerfoundation.yaml
+#
+# CancerFoundation ships as a repository with no package metadata: there is nothing
+# to pip install, so it is cloned and put on sys.path by the embedder. The pretrained
+# weights are a separate download (a polybox link in the repository's README) and are
+# NOT in the clone:
+#
+#   git clone https://github.com/BoevaLab/CancerFoundation.git
+#   # unpack the downloaded weights so that model/assets/ holds
+#   #   vocab.json  args.json  model.pth
+#   conda run -n vgtfm-cancerfoundation python -m vgtfm.embed.gene_fm \
+#       --model cancerfoundation --manifest <artifacts>/_embed/cancerfoundation/manifest.json \
+#       --out-dir <artifacts>/_embed/cancerfoundation --model-dir /path/to/CancerFoundation
+#
+# The pins follow the repository's own environment.yml. torch is held below 2.6 on
+# purpose: `embed()` calls `torch.load` without `weights_only=False`, and 2.6 flipped
+# that default, so a newer torch refuses the checkpoint rather than loading it.
+name: vgtfm-cancerfoundation
+channels: [conda-forge, bioconda]
+dependencies:
+  - python=3.12
+  - pip
+  - pyarrow
+  - pip:
+      - torch==2.3.1
+      # CancerFoundation's model/embedding.py builds its GeneVocab on torchtext,
+      # which upstream's environment.yml does not list. Without it the import fails
+      # before any weight is read. 0.18 is the last release and is built against
+      # torch 2.3, which is the pin above.
+      - torchtext==0.18.0
+      - numpy>=1.26,<2.3
+      - pandas>=2.2
+      - scipy>=1.13
+      - scikit-learn>=1.5
+      - anndata>=0.10
+      - scanpy>=1.10
+      - numba>=0.60
+      - tqdm>=4.66
+      - h5py>=3.12

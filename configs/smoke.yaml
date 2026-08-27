@@ -1,0 +1,62 @@
+# Smoke configuration — end-to-end run in minutes on a laptop GPU or CPU.
+#
+# Keeps the full pipeline shape (train on unannotated slides, evaluate on annotated
+# ones, both probe protocols, all three fold levels) but shrinks every dimension:
+# two MOSAIC slides for representation training, four TuPro donors so cross-donor
+# folds exist, and both USZ tissues so the per-tissue probes have something to do.
+run_name: smoke
+
+seeds: [42]
+
+data:
+  substrate: geneformer
+  splits: [train, validation, test]
+  include_samples:
+    # representation training (unannotated)
+    - MW-B-001a-vis
+    - MW-G-031a-vis
+    # TuPro: 4 donors x (region, replicate) -> all three fold levels are non-empty
+    - MACEGEJ-1-1
+    - MACEGEJ-1-2
+    - MACEGEJ-2-1
+    - MACEGEJ-2-2
+    - MAHEFOG-1-1
+    - MAHEFOG-1-2
+    - MAJOFIJ-1-1
+    - MAJOFIJ-1-2
+    - MAJOFIJ-2-1
+    - MAJOFIJ-2-2
+    - MELIPIT-1-1
+    - MELIPIT-1-2
+    # USZ: one kidney + one lung slide per tissue pair
+    - KC1
+    - KC3
+    - LC1
+    - LC2
+  max_spots: 24000
+
+models:
+  names: [pca, pca_oracle, ae]
+  pca_components: 32
+  ae:
+    latent_dim: 32
+    num_epochs: 5
+    patience: 3
+    batch_size: 1024
+  # Keep every model at the same width: the kNN probe is dimensionality-sensitive.
+  cdann:
+    latent_dim: 32
+    num_epochs: 5
+    batch_size: 256
+
+eval:
+  protocols: [heldout_donor, pooled_loso]
+  max_train_samples: 2000
+  bootstrap_n: 200
+
+diagnostics:
+  n_samples: 2000
+  n_iters: 2
+  cca_max_spots: 4000
+  cca_n_permutations: 5
+  scib_max_spots: 3000

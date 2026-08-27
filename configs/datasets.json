@@ -1,0 +1,723 @@
+{
+  "_comment": "Cohort registry for the vgtfm pipeline. Trimmed to the ten Visium cohorts the manuscript uses; the TCGA entries of the upstream registry are DeepSpot-generated virtual spatial transcriptomics, not measured data, and are excluded. 'split' is the cohort-level train/val/test assignment baked into the cached merged datasets. 'annotation_col' names the pathologist annotation in the raw .h5ad (null = unannotated, used for representation training only). 'donor_pattern' is a regex whose first group extracts the patient key from a sample id; null means every slide is its own patient. It is used for REPORTING only (the dataset table's donor counts) -- SpotTable.donor, which drives the folds and the donor-level bootstrap, still parses TuPro ids and falls back to the slide id, and changing that would move published numbers. 'citation.accession' and 'citation.bibkey' feed the generated dataset table; bibkey must match a key in the manuscript's .bib, which does not live in this repo.",
+  "datasets": {
+    "10x_TuPro": {
+      "name": "10x TuPro",
+      "description": "Tumor Profiler 10x Visium spatial transcriptomics (melanoma)",
+      "tissue": "skin",
+      "annotation_col": "ground_truth",
+      "gene_ids_col": "gene_ids",
+      "alignment_method": "h5ad_obs_pixels",
+      "donor_pattern": "^(.+)-\\d+-\\d+$",
+      "subdirs": {
+        "h5ad": "out_all_genes/data/h5ad",
+        "visium": null,
+        "tif": "out_all_genes/data/image",
+        "meta": "out_all_genes/data/meta"
+      },
+      "citation": {
+        "cohort": "Irmisch et al., The Tumor Profiler Study, Cancer Cell 39(3):288-293, 2021. doi:10.1016/j.ccell.2021.01.004",
+        "dataset": "Nonchev et al., Representation learning for multi-modal spatially resolved transcriptomics data, Bioinformatics 2026. doi:10.1093/bioinformatics/btag316",
+        "access": "controlled (Tumor Profiler consortium)",
+        "accession": null,
+        "bibkey": "nonchev2026representation"
+      },
+      "samples": [
+        {
+          "id": "MACEGEJ-1-1",
+          "split": "test"
+        },
+        {
+          "id": "MACEGEJ-2-1",
+          "split": "test"
+        },
+        {
+          "id": "MAHEFOG-1-1",
+          "split": "test"
+        },
+        {
+          "id": "MAJOFIJ-1-1",
+          "split": "test"
+        },
+        {
+          "id": "MAJOFIJ-2-1",
+          "split": "test"
+        },
+        {
+          "id": "MAKYGIW-1-1",
+          "split": "test"
+        },
+        {
+          "id": "MANOFYB-1-1",
+          "split": "test"
+        },
+        {
+          "id": "MELIPIT-1-1",
+          "split": "test"
+        },
+        {
+          "id": "MIDEKOG-1-1",
+          "split": "test"
+        },
+        {
+          "id": "MACEGEJ-1-2",
+          "split": "test"
+        },
+        {
+          "id": "MACEGEJ-2-2",
+          "split": "test"
+        },
+        {
+          "id": "MAHEFOG-1-2",
+          "split": "test"
+        },
+        {
+          "id": "MAJOFIJ-1-2",
+          "split": "test"
+        },
+        {
+          "id": "MAJOFIJ-2-2",
+          "split": "test"
+        },
+        {
+          "id": "MAKYGIW-1-2",
+          "split": "test"
+        },
+        {
+          "id": "MANOFYB-1-2",
+          "split": "test"
+        },
+        {
+          "id": "MELIPIT-1-2",
+          "split": "test"
+        },
+        {
+          "id": "MIDEKOG-1-2",
+          "split": "test"
+        }
+      ]
+    },
+    "TLS_VISIUM_USZ_kidney": {
+      "name": "TLS Visium USZ",
+      "description": "TLS Visium spatial transcriptomics from USZ",
+      "tissue": "kidney",
+      "annotation_col": "manual_anno",
+      "gene_ids_col": "gene_ids",
+      "alignment_method": "lstsq_estimate",
+      "donor_pattern": null,
+      "subdirs": {
+        "h5ad": "h5ad_preprocessed",
+        "visium": "10x_Visium",
+        "tif": "tif_slides"
+      },
+      "citation": {
+        "cohort": "Dawo, Nonchev, Silina. 10x Visium: kidney cancer with tertiary lymphoid structures. 3 slides released, 2 used here.",
+        "dataset": "https://zenodo.org/doi/10.5281/zenodo.14620362",
+        "access": "Zenodo",
+        "accession": "Zenodo 14620362",
+        "bibkey": "dawo2025tls"
+      },
+      "samples": [
+        {
+          "id": "KC1",
+          "split": "test"
+        },
+        {
+          "id": "KC3",
+          "split": "test"
+        }
+      ]
+    },
+    "TLS_VISIUM_USZ_lung": {
+      "name": "TLS Visium USZ",
+      "description": "TLS Visium spatial transcriptomics from USZ",
+      "tissue": "lung",
+      "annotation_col": "manual_anno",
+      "gene_ids_col": "gene_ids",
+      "alignment_method": "lstsq_estimate",
+      "donor_pattern": null,
+      "subdirs": {
+        "h5ad": "h5ad_preprocessed",
+        "visium": "10x_Visium",
+        "tif": "tif_slides"
+      },
+      "citation": {
+        "cohort": "Dawo, Nonchev, Silina. 10x Visium: lung cancer with tertiary lymphoid structures. 5 slides released, 4 used here.",
+        "dataset": "https://zenodo.org/doi/10.5281/zenodo.14620362",
+        "access": "Zenodo",
+        "accession": "Zenodo 14620362",
+        "bibkey": "dawo2025tls"
+      },
+      "samples": [
+        {
+          "id": "LC1",
+          "split": "test"
+        },
+        {
+          "id": "LC2",
+          "split": "test"
+        },
+        {
+          "id": "LC3",
+          "split": "test"
+        },
+        {
+          "id": "LC5",
+          "split": "test"
+        }
+      ]
+    },
+    "LUNG_CANCER_LUAD": {
+      "name": "Lung Cancer LUAD",
+      "description": "Lung adenocarcinoma spatial transcriptomics",
+      "tissue": "lung",
+      "annotation_col": null,
+      "gene_ids_col": "gene_ids",
+      "alignment_method": "h5ad_obs_pixels",
+      "donor_pattern": "^(P\\d+)-",
+      "subdirs": {
+        "h5ad": "out_all_genes/data/h5ad",
+        "visium": null,
+        "tif": "out_all_genes/data/image",
+        "meta": "out_all_genes/data/meta"
+      },
+      "citation": {
+        "cohort": "De Zuani et al., Single-cell and spatial transcriptomics analysis of non-small cell lung cancer, Nat Commun 15:4388, 2024. doi:10.1038/s41467-024-48700-8",
+        "dataset": "ArrayExpress E-MTAB-13530",
+        "access": "ArrayExpress",
+        "accession": "E-MTAB-13530",
+        "bibkey": "dezuani2024nsclc"
+      },
+      "samples": [
+        {
+          "id": "P10-B1",
+          "split": "train"
+        },
+        {
+          "id": "P10-B2",
+          "split": "train"
+        },
+        {
+          "id": "P10-T1",
+          "split": "train"
+        },
+        {
+          "id": "P10-T2",
+          "split": "train"
+        },
+        {
+          "id": "P10-T3",
+          "split": "train"
+        },
+        {
+          "id": "P10-T4",
+          "split": "train"
+        },
+        {
+          "id": "P15-B1",
+          "split": "train"
+        },
+        {
+          "id": "P15-B2",
+          "split": "train"
+        },
+        {
+          "id": "P15-T1",
+          "split": "train"
+        },
+        {
+          "id": "P15-T2",
+          "split": "train"
+        },
+        {
+          "id": "P16-B1",
+          "split": "train"
+        },
+        {
+          "id": "P16-B2",
+          "split": "train"
+        },
+        {
+          "id": "P16-T1",
+          "split": "train"
+        },
+        {
+          "id": "P16-T2",
+          "split": "train"
+        },
+        {
+          "id": "P24-B1",
+          "split": "train"
+        },
+        {
+          "id": "P24-B2",
+          "split": "train"
+        },
+        {
+          "id": "P24-T1",
+          "split": "test"
+        },
+        {
+          "id": "P24-T2",
+          "split": "test"
+        },
+        {
+          "id": "P25-B1",
+          "split": "test"
+        },
+        {
+          "id": "P25-B2",
+          "split": "validation"
+        },
+        {
+          "id": "P25-T1",
+          "split": "validation"
+        },
+        {
+          "id": "P25-T2",
+          "split": "validation"
+        }
+      ]
+    },
+    "LUNG_CANCER_LUSC": {
+      "name": "Lung Cancer LUSC",
+      "description": "Lung squamous cell carcinoma spatial transcriptomics",
+      "tissue": "lung",
+      "annotation_col": null,
+      "gene_ids_col": "gene_ids",
+      "alignment_method": "h5ad_obs_pixels",
+      "donor_pattern": "^(P\\d+)-",
+      "subdirs": {
+        "h5ad": "out_all_genes/data/h5ad",
+        "visium": null,
+        "tif": "out_all_genes/data/image",
+        "meta": "out_all_genes/data/meta"
+      },
+      "citation": {
+        "cohort": "De Zuani et al., Nat Commun 15:4388, 2024. doi:10.1038/s41467-024-48700-8",
+        "dataset": "ArrayExpress E-MTAB-13530",
+        "access": "ArrayExpress",
+        "accession": "E-MTAB-13530",
+        "bibkey": "dezuani2024nsclc"
+      },
+      "samples": [
+        {
+          "id": "P11-B1",
+          "split": "train"
+        },
+        {
+          "id": "P11-B2",
+          "split": "train"
+        },
+        {
+          "id": "P11-T1",
+          "split": "train"
+        },
+        {
+          "id": "P11-T2",
+          "split": "train"
+        },
+        {
+          "id": "P11-T3",
+          "split": "train"
+        },
+        {
+          "id": "P11-T4",
+          "split": "train"
+        },
+        {
+          "id": "P17-B1",
+          "split": "train"
+        },
+        {
+          "id": "P17-B2",
+          "split": "train"
+        },
+        {
+          "id": "P17-T1",
+          "split": "train"
+        },
+        {
+          "id": "P17-T2",
+          "split": "train"
+        },
+        {
+          "id": "P19-B1",
+          "split": "test"
+        },
+        {
+          "id": "P19-B2",
+          "split": "test"
+        },
+        {
+          "id": "P19-T1",
+          "split": "validation"
+        },
+        {
+          "id": "P19-T2",
+          "split": "validation"
+        }
+      ]
+    },
+    "MOSAIC_GBM": {
+      "name": "Mosaic GBM",
+      "description": "Glioblastoma spatial transcriptomics",
+      "tissue": "brain",
+      "annotation_col": null,
+      "gene_ids_col": "gene_ids",
+      "alignment_method": "h5ad_obs_pixels",
+      "donor_pattern": null,
+      "subdirs": {
+        "h5ad": "out_all_genes/data/h5ad",
+        "visium": null,
+        "tif": "out_all_genes/data/image",
+        "meta": "out_all_genes/data/meta"
+      },
+      "citation": {
+        "cohort": "MOSAIC - multi-omics spatial atlas in cancer.",
+        "dataset": "https://ega-archive.org/studies/EGAS50000000689",
+        "access": "controlled (EGA)",
+        "accession": "EGAS50000000689",
+        "bibkey": "mosaic"
+      },
+      "samples": [
+        {
+          "id": "MW-G-031a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-G-032a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-G-033a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-G-034a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-G-035a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-G-036a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-G-037a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-G-038a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-G-039a-vis",
+          "split": "test"
+        },
+        {
+          "id": "MW-G-040a-vis",
+          "split": "validation"
+        }
+      ]
+    },
+    "MOSAIC_DLBLC": {
+      "name": "Mosaic DLBCL",
+      "description": "Diffuse large B-cell lymphoma spatial transcriptomics",
+      "tissue": "lymph-nodes",
+      "annotation_col": null,
+      "gene_ids_col": "gene_ids",
+      "alignment_method": "h5ad_obs_pixels",
+      "donor_pattern": null,
+      "subdirs": {
+        "h5ad": "out_all_genes/data/h5ad",
+        "visium": null,
+        "tif": "out_all_genes/data/image",
+        "meta": "out_all_genes/data/meta"
+      },
+      "citation": {
+        "cohort": "MOSAIC - multi-omics spatial atlas in cancer.",
+        "dataset": "https://ega-archive.org/studies/EGAS50000000689",
+        "access": "controlled (EGA)",
+        "accession": "EGAS50000000689",
+        "bibkey": "mosaic"
+      },
+      "samples": [
+        {
+          "id": "MW-D-041a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-D-042a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-D-043a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-D-044a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-D-045a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-D-046a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-D-047a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-D-048a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-D-049a-vis",
+          "split": "test"
+        },
+        {
+          "id": "MW-D-050a-vis",
+          "split": "validation"
+        }
+      ]
+    },
+    "MOSAIC_Bladder": {
+      "name": "Mosaic Bladder",
+      "description": "Bladder cancer spatial transcriptomics",
+      "tissue": "bladder",
+      "annotation_col": null,
+      "gene_ids_col": "gene_ids",
+      "alignment_method": "h5ad_obs_pixels",
+      "donor_pattern": null,
+      "subdirs": {
+        "h5ad": "out_all_genes/data/h5ad",
+        "visium": null,
+        "tif": "out_all_genes/data/image",
+        "meta": "out_all_genes/data/meta"
+      },
+      "citation": {
+        "cohort": "MOSAIC - multi-omics spatial atlas in cancer.",
+        "dataset": "https://ega-archive.org/studies/EGAS50000000689",
+        "access": "controlled (EGA)",
+        "accession": "EGAS50000000689",
+        "bibkey": "mosaic"
+      },
+      "samples": [
+        {
+          "id": "MW-B-001a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-B-002a-vbu",
+          "split": "train"
+        },
+        {
+          "id": "MW-B-003a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-B-004a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-B-005a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-B-006a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-B-007a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-B-008a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-B-009a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-B-010a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-B-011a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-B-012a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-B-013a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-B-014a-vbu",
+          "split": "test"
+        },
+        {
+          "id": "MW-B-015a-vis",
+          "split": "validation"
+        }
+      ]
+    },
+    "MOSAIC_Mesothelioma": {
+      "name": "Mosaic Mesothelioma",
+      "description": "Mesothelioma spatial transcriptomics",
+      "tissue": "mesothelium",
+      "annotation_col": null,
+      "gene_ids_col": "gene_ids",
+      "alignment_method": "h5ad_obs_pixels",
+      "donor_pattern": null,
+      "subdirs": {
+        "h5ad": "out_all_genes/data/h5ad",
+        "visium": null,
+        "tif": "out_all_genes/data/image",
+        "meta": "out_all_genes/data/meta"
+      },
+      "citation": {
+        "cohort": "MOSAIC - multi-omics spatial atlas in cancer.",
+        "dataset": "https://ega-archive.org/studies/EGAS50000000689",
+        "access": "controlled (EGA)",
+        "accession": "EGAS50000000689",
+        "bibkey": "mosaic"
+      },
+      "samples": [
+        {
+          "id": "MW-M-051a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-M-052a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-M-053a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-M-054a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-M-055a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-M-056a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-M-057a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-M-058a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-M-059a-vis",
+          "split": "test"
+        },
+        {
+          "id": "MW-M-060a-vis",
+          "split": "validation"
+        }
+      ]
+    },
+    "MOSAIC_Ovarian": {
+      "name": "Mosaic Ovarian",
+      "description": "Ovarian cancer spatial transcriptomics",
+      "tissue": "ovarian",
+      "annotation_col": null,
+      "gene_ids_col": "gene_ids",
+      "alignment_method": "h5ad_obs_pixels",
+      "donor_pattern": null,
+      "subdirs": {
+        "h5ad": "out_all_genes/data/h5ad",
+        "visium": null,
+        "tif": "out_all_genes/data/image",
+        "meta": "out_all_genes/data/meta"
+      },
+      "citation": {
+        "cohort": "MOSAIC - multi-omics spatial atlas in cancer.",
+        "dataset": "https://ega-archive.org/studies/EGAS50000000689",
+        "access": "controlled (EGA)",
+        "accession": "EGAS50000000689",
+        "bibkey": "mosaic"
+      },
+      "samples": [
+        {
+          "id": "MW-O-016a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-O-017a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-O-018a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-O-019a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-O-020a-vbu",
+          "split": "train"
+        },
+        {
+          "id": "MW-O-021a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-O-022a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-O-023a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-O-024a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-O-025a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-O-026a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-O-027a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-O-028a-vis",
+          "split": "train"
+        },
+        {
+          "id": "MW-O-029a-vis",
+          "split": "test"
+        },
+        {
+          "id": "MW-O-030a-vis",
+          "split": "validation"
+        }
+      ]
+    }
+  }
+}

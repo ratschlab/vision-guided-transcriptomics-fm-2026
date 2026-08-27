@@ -1,0 +1,55 @@
+# Regression check: the corrected protocol against the one used previously.
+#
+# Reproduces the legacy protocol as closely as the data allows — the representation
+# is refitted on each fold's training slides (train.refit_per_fold) and the probe
+# runs leave-one-slide-out within tissue over the fold's whole slide set
+# (pooled_loso_on_fold), with no train/eval separation.
+#
+# What it demonstrates: under the legacy protocol the fold never changes the
+# computation, so every fold returns a bit-identical score and the spread across
+# folds collapses to zero. The corrected protocol (`heldout_donor`) spans a wide
+# range over the same folds, and sits materially lower. The gap is the leakage.
+#
+# Read this as a check on the protocol, not as a measurement: one seed, one cohort,
+# and two settings pinned below purely so the comparison is like for like.
+
+run_name: regression_check
+
+seeds: [42]
+
+data:
+  substrate: geneformer
+  # The published table macro-averaged over all five skin classes, `Pigment` (18
+  # spots, scored ~0 by everything) included. The default support floor demotes it,
+  # which turns this check into a four-cell macro measured against a five-class
+  # published number. Off here, and only here, so the comparison is like for like.
+  min_class_spots: 0
+  min_class_slides: 0
+
+models:
+  names: [pca, pca_oracle, ae]
+  pca_components: 128
+  ae:
+    latent_dim: 128
+    num_epochs: 60
+    patience: 15
+  cdann:
+    latent_dim: 128
+
+folds:
+  levels: [cross_donor]
+  # The published cross-donor table is TuPro melanoma only. USZ now enters
+  # cross_donor everywhere else (each of its slides is a different patient), but
+  # letting it in here would change what this check reproduces, so it is pinned to
+  # the cohort the published numbers came from.
+  tissues: [skin]
+
+train:
+  refit_per_fold: true
+
+eval:
+  protocols: [heldout_donor, pooled_loso_on_fold]
+  bootstrap_n: 500
+  # The original pipeline did not standardise before the kNN. Turn this off when
+  # comparing against the published values; leave it on for everything else.
+  standardize: false

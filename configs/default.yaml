@@ -1,0 +1,76 @@
+# Default configuration — Geneformer gene features + Midnight H&E features.
+#
+# Every field not listed here falls back to the dataclass default in
+# vgtfm/config.py. Override any field from the CLI, e.g.
+#   python run.py train --config configs/default.yaml --set models.pca_components=50
+run_name: default
+
+seeds: [42, 43, 44]
+
+data:
+  substrate: geneformer
+  splits: [train, validation, test]
+  # A class must clear both bounds within its own tissue to be scored; under either
+  # it is demoted to unlabelled and leaves the probe and the pooled macro alike.
+  # Drops `lung | LN` (33 spots on 1 slide) and `skin | Pigment` (18 spots), which
+  # every representation — the H&E oracle included — scores at F1 = 0. The
+  # next-smallest class kept is `kidney | INFL` at 164 spots on 2 slides.
+  min_class_spots: 50
+  min_class_slides: 2
+
+folds:
+  # cross_replicate and cross_region need TuPro's region/replicate structure, which
+  # USZ does not have; cross_donor needs only a patient key and an organ, so it
+  # covers TuPro skin (7 donors), USZ lung (4) and USZ kidney (2) alike.
+  levels: [cross_replicate, cross_region, cross_donor]
+  # Per tissue, so the 18-slide melanoma cohort cannot crowd out the USZ folds.
+  max_cross_donor_splits: 10
+  seed: 42
+
+models:
+  names: [hvg_pca, pca, pca_oracle, pca_oracle_matched, ae, cdann]
+  # Latent width of every learned embedding, and of the PCA baselines, so the
+  # comparison is not confounded by dimensionality.
+  pca_components: 128
+  # The capacity control: the oracle refitted where its *effective* rank lands
+  # near the gene PCAs', so its lead cannot be read as a wider head.
+  pca_oracle_matched_components: 32
+  ae:
+    latent_dim: 128
+    # Linear layers per side: 2 gives encoder 1152 -> 512 -> 128 and decoder
+    # 128 -> 512 -> 3072 for Geneformer + Midnight (see models/nn.py:layer_sizes).
+    enc_layers: 2
+    dec_layers: 2
+    dropout: 0.1
+    lr: 0.001
+    weight_decay: 0.01
+    batch_size: 4096
+    num_epochs: 200
+    patience: 20
+    val_frac: 0.1
+    patch_transform: none
+  cdann:
+    latent_dim: 128
+  # The count-level baseline: scanpy's standard workflow on the raw Visium
+  # counts, so "no improvement over simple statistical baselines" is measured
+  # against a baseline that never passes through a foundation model.
+  hvg:
+    n_top_genes: 2000
+    scale: true
+
+eval:
+  # Increasing leniency; reporting all three shows what each leak is worth.
+  protocols: [heldout_donor, loso_donor, pooled_loso]
+  knn_k: 5
+  standardize: true
+  max_train_samples: 10000
+  bootstrap_n: 2000
+
+diagnostics:
+  columns: [gene_features, patch_features]
+  split: train
+  include_controls: true
+
+perf:
+  device: auto
+  amp: true

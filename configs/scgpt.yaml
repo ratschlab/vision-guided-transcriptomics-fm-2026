@@ -1,0 +1,24 @@
+# scgpt gene features + Midnight H&E. Identical to configs/default.yaml except for
+# the substrate, so any difference in the results is attributable to the gene-side
+# foundation model and nothing else.
+run_name: scgpt
+
+seeds: [42, 43, 44]
+
+data:
+  substrate: scgpt
+
+models:
+  names: [hvg_pca, pca, pca_oracle, pca_oracle_matched, ae, cdann]
+  pca_components: 128
+  pca_oracle_matched_components: 32
+  ae:
+    latent_dim: 128
+  cdann:
+    latent_dim: 128
+  hvg:
+    n_top_genes: 2000
+    scale: true
+
+eval:
+  protocols: [heldout_donor, loso_donor, pooled_loso]
