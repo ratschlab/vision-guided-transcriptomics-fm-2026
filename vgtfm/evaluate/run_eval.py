@@ -11,7 +11,7 @@ Outputs (under ``eval/``):
 ``results.csv``     macro metrics, one row per model/seed/protocol/level/fold/scope
 ``per_class.csv``   per-class precision/recall/F1/support at the same granularity
 ``bootstrap.csv``   donor-level CIs on fold-pooled predictions
-``deltas.csv``      paired model-vs-PCA deltas on a shared donor resample
+``deltas.csv``      paired model-vs-reference deltas on a shared donor resample
 ``predictions/``    the raw prediction vectors, for re-analysis without re-running
 """
 
@@ -27,6 +27,7 @@ from ..data import tables
 from ..degraded import refuse
 from ..labels import cohort_classes, labeled_mask
 from .. import provenance
+from ..models import corrected
 from ..models.train import embedding_path, fit_and_embed, load_embedding
 from . import protocol as proto
 from .reporting import (
@@ -43,7 +44,8 @@ from .reporting import (
 
 #: Model name used for the chance-level baseline row.
 MAJORITY = "majority"
-#: Reference model that paired deltas are computed against.
+#: Model paired deltas are computed against, unless the arm has a closer
+#: reference of its own (:func:`_reference_model`).
 REFERENCE = "pca"
 
 
@@ -190,6 +192,7 @@ def run(cfg) -> None:
             # The majority baseline has nothing to refit; every other model does,
             # including the oracle.
             if cfg.train.refit_per_fold and model != MAJORITY:
+                _refuse_refit_of_corrected(model)
                 per_protocol.update(_refit_predictions(cfg, table, inputs, model, seed, fold_map))
 
             for (protocol, level), pred in per_protocol.items():
@@ -237,6 +240,22 @@ def run(cfg) -> None:
 # ── helpers ──────────────────────────────────────────────────────────
 
 
+def _refuse_refit_of_corrected(model: str) -> None:
+    """``train.refit_per_fold`` cannot be combined with a batch-corrected arm.
+
+    A refit here would fit on the fold's own training slides while their features
+    carry a correction fitted across the whole cohort — Harmony and ComBat have no
+    per-fold form — so the protocol the row claims would not be the one that ran.
+    """
+    if corrected.parse(model) is None:
+        return
+    refuse(
+        f"a per-fold refit of '{model}'",
+        "its input was corrected across the whole cohort and the correction has no per-fold form",
+        hint=f"set train.refit_per_fold=false, or drop '{model}' from models.names",
+    )
+
+
 def _refit_predictions(cfg, table, inputs, model, seed, fold_map) -> dict:
     """Legacy mode: refit the representation on each fold's training slides.
 
@@ -275,14 +294,34 @@ def _refit_predictions(cfg, table, inputs, model, seed, fold_map) -> dict:
     return out
 
 
+def _reference_model(model: str, cfg) -> str:
+    """Which model *model*'s paired delta is measured against.
+
+    ``pca`` for everything the paper reports, and the matching corrected baseline
+    for a batch-corrected arm, so that delta is what guidance adds *given* a
+    corrected source rather than the sum of guidance and correction. Falls back to
+    ``pca`` when that baseline is not in the run: the delta then answers the
+    two-change question, and the ``reference`` column says so.
+    """
+    ref = corrected.reference_for(model)
+    return ref if ref and ref in cfg.models.names else REFERENCE
+
+
 def _delta_rows(preds_by_key: dict, classes, cfg, vocab_by_key) -> list[dict]:
-    """Paired model-minus-PCA deltas wherever both scored exactly the same rows."""
+    """Paired model-minus-reference deltas wherever both scored exactly the same rows.
+
+    ``deltas.csv`` carries the reference per row (:func:`_reference_model`), so two
+    arms measured against different references are never read as one column.
+    """
     rows: list[dict] = []
     draws: dict[tuple, list] = {}
     for (seed, model, protocol, level), pred in preds_by_key.items():
-        if model in (REFERENCE, MAJORITY):
+        if model == MAJORITY:
             continue
-        ref = preds_by_key.get((seed, REFERENCE, protocol, level))
+        reference = _reference_model(model, cfg)
+        if model == reference:
+            continue
+        ref = preds_by_key.get((seed, reference, protocol, level))
         if not ref or len(ref["y_true"]) != len(pred["y_true"]):
             continue
         if not np.array_equal(ref["y_true"], pred["y_true"]):
@@ -290,7 +329,7 @@ def _delta_rows(preds_by_key: dict, classes, cfg, vocab_by_key) -> list[dict]:
         base = {
             "substrate": cfg.data.substrate,
             "model": model,
-            "reference": REFERENCE,
+            "reference": reference,
             "seed": seed,
             "protocol": protocol,
             "level": level,
