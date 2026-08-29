@@ -66,13 +66,13 @@ import importlib.metadata as md
 # distribution name, required pin, stage that needs it
 need = [
     ("torch",        "2.10.0",  "train"),
-    ("scanpy",       "1.11.5",  "data"),
+    ("scanpy",       "1.11.5",  "data, and ComBat for a combat_* model"),
     ("anndata",      "0.12.10", "data"),
     ("datasets",     "4.5.0",   "data"),
     ("scikit-learn", "1.8.0",   "eval"),
     ("scib-metrics", "0.5.9",   "diagnose, unless diagnostics.run_scib=false"),
     ("decoupler",    "2.1.6",   "biosignal"),
-    ("harmonypy",    "2.0.0",   "integrate"),
+    ("harmonypy",    "2.0.0",   "integrate, train with a harmony_* model"),
     ("bbknn",        "1.6.0",   "integrate"),
     ("scvi-tools",   "1.4.2",   "integrate"),
     ("umap-learn",   "0.5.11",  "figures"),
