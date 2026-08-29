@@ -9,7 +9,8 @@ data:
   substrate: cancerfoundation
 
 models:
-  names: [hvg_pca, pca, pca_oracle, pca_oracle_matched, ae, cdann]
+  names: [hvg_pca, pca, pca_oracle, pca_oracle_matched, ae, cdann,
+          harmony_pca, harmony_ae, combat_pca, combat_ae]
   pca_components: 128
   pca_oracle_matched_components: 32
   ae:

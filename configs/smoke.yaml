@@ -36,7 +36,7 @@ data:
   max_spots: 24000
 
 models:
-  names: [pca, pca_oracle, ae]
+  names: [pca, pca_oracle, ae, harmony_pca, harmony_ae, combat_pca, combat_ae]
   pca_components: 32
   ae:
     latent_dim: 32
