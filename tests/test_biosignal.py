@@ -13,7 +13,15 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from vgtfm.biosignal.enrichment import GENE_SET_SCHEMAS, _normalise_output, check_coverage, load_net
+from vgtfm.biosignal.enrichment import (
+    GENE_SET_SCHEMAS,
+    RESULT_COLUMNS,
+    benjamini_hochberg,
+    check_coverage,
+    collection_provenance,
+    load_net,
+    run_gsea,
+)
 from vgtfm.biosignal.ridge import (
     R2Accumulator,
     alpha_grid,
@@ -335,6 +343,16 @@ def test_detrending_preserves_the_gene_order_within_a_baseline_bin():
 
 # ── enrichment plumbing ──────────────────────────────────────────────
 
+RESOURCES = Path(__file__).resolve().parents[1] / "vgtfm" / "biosignal" / "resources"
+
+
+def _ranking(n: int = 4000, seed: int = 0) -> pd.Series:
+    """A ranking over real Hallmark symbols, so the coverage floor is cleared."""
+    symbols = sorted(load_net(RESOURCES, "hallmark")["target"].astype(str).unique())
+    rng = np.random.default_rng(seed)
+    genes = symbols[: min(n, len(symbols))]
+    return pd.Series(rng.normal(size=len(genes)), index=genes)
+
 
 def test_coverage_guard_fires_when_symbols_do_not_match():
     """The common failure: Ensembl ids where HGNC symbols were expected."""
@@ -355,43 +373,31 @@ def test_coverage_floors_are_declared_for_every_collection():
         assert schema["filename"].endswith(".parquet")
 
 
-@pytest.mark.parametrize(
-    "frames,expected",
-    [
-        (2, ["norm", "padj"]),  # current decoupler
-        (4, ["score", "norm", "pval", "padj"]),  # older releases
-        (3, ["norm", "pval", "padj"]),
-    ],
-)
-def test_gsea_output_is_normalised_across_decoupler_return_shapes(frames, expected):
-    """``norm`` is always the normalised score, whichever tuple shape arrives."""
-    sets = ["HALLMARK_EMT", "HALLMARK_HYPOXIA"]
-    result = tuple(
-        pd.DataFrame([[float(i + 1), float(i + 2)]], columns=sets) for i in range(frames)
-    )
-    out = _normalise_output(result, "delta_r2")
+def test_the_decoupler_kernel_still_returns_scores_and_unadjusted_p_values():
+    """The one thing this module depends on decoupler's internals for.
 
-    assert list(out.columns) == ["sample", "source", *expected]
-    assert set(out["source"]) == set(sets)
-    assert (out["sample"] == "delta_r2").all()
-    assert out["norm"].notna().all()
+    ``dc.mt.gsea`` overwrites the permutation p-value with its own BH adjustment, so
+    the unadjusted column is only reachable from the kernel below it. A release that
+    changes that contract has to fail here, not in a table with a mis-labelled p.
+    """
+    pytest.importorskip("decoupler")
+    from decoupler.mt._gsea import _func_gsea
+    from decoupler.pp.net import idxmat, prune
 
+    stat = _ranking(seed=3)
+    net = load_net(RESOURCES, "hallmark")
+    pruned = prune(features=stat.index.to_numpy(), net=net, tmin=15, verbose=False)
+    sources, cnct, starts, offsets = idxmat(features=stat.index.to_numpy(), net=pruned)
+    norm, pval = _func_gsea(stat.to_numpy(float)[None, :], cnct, starts, offsets, times=50, seed=42)
 
-def test_gsea_output_accepts_a_long_frame_and_renames_its_columns():
-    frame = pd.DataFrame({"source": ["A", "B"], "nes": [2.0, -3.0], "fdr": [0.2, 0.01]})
-    out = _normalise_output(frame, "delta_r2")
-    assert {"norm", "padj", "sample"} <= set(out.columns)
-    # Sorted by adjusted p-value, so the significant set comes first.
-    assert out.iloc[0]["source"] == "B"
-
-
-def test_gsea_output_of_nothing_is_empty():
-    assert _normalise_output((None, None), "delta_r2").empty
+    assert norm.shape == pval.shape == (1, len(sources))
+    # Unadjusted: a permutation count over a finite null, so it reaches the floor.
+    assert pval.min() >= 0.0 and pval.max() <= 1.0
+    # `offsets` is the set size on the background, which is what the table prints.
+    assert np.asarray(offsets).min() >= 15
 
 
 # ── the vendored collections ─────────────────────────────────────────
-
-RESOURCES = Path(__file__).resolve().parents[1] / "vgtfm" / "biosignal" / "resources"
 
 
 @pytest.mark.parametrize("gene_set", sorted(GENE_SET_SCHEMAS))
@@ -426,3 +432,98 @@ def test_the_shipped_hallmark_clears_its_own_coverage_floor():
     coverage, covered, total = check_coverage(universe, net, "hallmark")
 
     assert coverage == 1.0 and covered == total
+
+
+# ── the statistics a reader has to be given ──────────────────────────
+#
+# The columns exist, the permutation floor is reported as a bound rather than as a
+# zero, and the scores still agree with decoupler's own entry point.
+
+
+def test_benjamini_hochberg_matches_the_textbook_definition():
+    p = np.array([0.001, 0.008, 0.039, 0.041, 0.042, 0.06, 0.074, 0.205])
+    n = p.size
+    expected = np.minimum.accumulate((p * n / np.arange(1, n + 1))[::-1])[::-1]
+    assert benjamini_hochberg(p) == pytest.approx(expected)
+
+
+def test_benjamini_hochberg_is_monotone_and_bounded():
+    rng = np.random.default_rng(0)
+    p = rng.random(200)
+    q = benjamini_hochberg(p)
+    assert q.max() <= 1.0 and q.min() >= 0.0
+    order = np.argsort(p)
+    assert np.all(np.diff(q[order]) >= -1e-12)
+
+
+def test_benjamini_hochberg_excludes_nan_from_the_family():
+    p = np.array([0.01, np.nan, 0.02])
+    q = benjamini_hochberg(p)
+    assert np.isnan(q[1])
+    # Two hypotheses in the family, not three.
+    assert q[0] == pytest.approx(0.02)
+
+
+def test_run_gsea_reports_every_column_a_reader_needs():
+    pytest.importorskip("decoupler")
+    res = run_gsea(_ranking(), RESOURCES, "hallmark", times=200, seed=42)
+
+    assert list(res.table.columns) == RESULT_COLUMNS
+    # The set size is the count on the *background*: never above it, never below the
+    # minimum that was asked for.
+    assert res.table["set_size"].between(res.min_n, res.n_ranked).all()
+    assert res.n_ranked == len(_ranking())
+
+    meta = res.meta()
+    for field in (
+        "collection",
+        "citation",
+        "test",
+        "background_n_genes",
+        "min_set_size",
+        "permutations",
+        "pval_resolution",
+        "multiple_testing",
+    ):
+        assert meta[field] not in (None, ""), field
+    assert meta["background_n_genes"] == res.n_ranked
+    assert meta["pval_resolution"] == pytest.approx(1 / 200)
+
+
+def test_an_unresolvable_p_value_never_becomes_an_fdr_of_zero():
+    """A permutation test cannot deliver q = 0, and a table must not print one."""
+    pytest.importorskip("decoupler")
+    res = run_gsea(_ranking(seed=1), RESOURCES, "hallmark", times=200, seed=42)
+    assert (res.table["padj"] > 0).all()
+    # BH was applied at the floor, so no adjusted value can sit below it.
+    assert res.table["padj"].min() >= 1 / res.permutations - 1e-12
+    # The unadjusted column keeps the raw count, zeros included: rounding those away
+    # would hide the resolution.
+    assert (res.table["pval"] >= 0).all()
+
+
+def test_run_gsea_reproduces_decouplers_own_scores():
+    """The extra columns come from calling decoupler one level down, not from a
+    different test: diverging scores would mean GSEA has been reimplemented here and
+    the caption's citation is no longer true."""
+    dc = pytest.importorskip("decoupler")
+    stat = _ranking(seed=2)
+    res = run_gsea(stat, RESOURCES, "hallmark", label="d", times=200, seed=7)
+
+    mat = stat.to_frame(name="d").T
+    mat.index.name = "sample"
+    nes, _ = dc.mt.gsea(
+        data=mat, net=load_net(RESOURCES, "hallmark"), tmin=15, times=200, seed=7, verbose=False
+    )
+    ours = res.table.set_index("source")["norm"]
+    assert ours.to_numpy() == pytest.approx(nes.iloc[0].reindex(ours.index).to_numpy())
+
+
+@pytest.mark.parametrize("gene_set", sorted(GENE_SET_SCHEMAS))
+def test_every_collection_can_name_and_identify_itself(gene_set):
+    """A name is not a citation and a citation is not a version; the caption quotes
+    all three."""
+    prov = collection_provenance(RESOURCES, gene_set)
+    assert prov["collection"] and prov["citation"]
+    assert len(prov["sha256"]) == 64
+    assert prov["n_sets"] > 0 and prov["n_genes"] > 0

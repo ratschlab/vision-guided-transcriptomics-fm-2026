@@ -20,6 +20,7 @@ from vgtfm.figures.tables import (
     effective_rank_table,
     fold_hierarchy_table,
     integration_table,
+    model_label,
     per_organ_table,
     shuffle_table,
     tissue_label,
@@ -382,6 +383,27 @@ def test_delta_table_reports_macro_rows_with_signed_intervals(tmp_path):
     assert "-0.070" in body and "[-0.120, -0.020]" in body
 
 
+def test_the_delta_table_names_the_reference_when_a_run_holds_more_than_one(tmp_path):
+    """A batch-corrected arm is measured against its corrected baseline, so a
+    column headed "vs PCA" would mislabel it."""
+    frame = pd.concat(
+        [
+            delta_frame().assign(reference="pca"),
+            delta_frame().assign(model="harmony_ae", reference="harmony_pca"),
+        ],
+        ignore_index=True,
+    )
+    delta_table(frame, tmp_path)
+    body = (tmp_path / "table_deltas_cross_donor.tex").read_text()
+    assert "macro-F1 & " in body, "the shared reference cannot be in the column head"
+    assert r"(vs harmony\_pca)" in body and r"(vs pca)" in body
+
+    delta_table(delta_frame().assign(reference="pca"), tmp_path)
+    body = (tmp_path / "table_deltas_cross_donor.tex").read_text()
+    assert "macro-F1 vs PCA (gene-only)" in body
+    assert "(vs pca)" not in body
+
+
 def test_delta_table_of_an_absent_slice_is_empty(tmp_path):
     assert delta_table(delta_frame(), tmp_path, level="cross_region").empty
     assert delta_table(pd.DataFrame(), tmp_path).empty
@@ -678,6 +700,16 @@ def test_every_registered_model_has_a_display_name():
     from vgtfm.models.base import MODEL_NAMES
 
     assert set(MODEL_NAMES) <= set(MODEL_LABELS)
+
+
+def test_a_batch_corrected_arm_is_labelled_from_its_inner_model():
+    """Those names are generated, so they are in no dictionary; unescaped, the
+    underscore in one would not compile."""
+    assert model_label("harmony_ae") == MODEL_LABELS["ae"] + ", Harmony-corrected"
+    assert model_label("combat_pca") == MODEL_LABELS["pca"] + ", ComBat-corrected"
+    assert model_label("pca") == MODEL_LABELS["pca"]
+    assert model_label("hvg_pca") == MODEL_LABELS["hvg_pca"]
+    assert model_label("something_new") == r"something\_new"
 
 
 # ── the fold hierarchy ───────────────────────────────────────────────
