@@ -451,15 +451,22 @@ def _run_one_gsea(cfg, stat: pd.Series, gene_set: str, label: str):
 
     try:
         res = enrichment.run_gsea(
-            stat, cfg.biosignal.resources_dir, gene_set, label=label, seed=cfg.folds.seed
+            stat,
+            cfg.biosignal.resources_dir,
+            gene_set,
+            label=label,
+            seed=cfg.folds.seed,
+            times=cfg.biosignal.gsea_permutations,
+            min_n=cfg.biosignal.gsea_min_set_size,
         )
     except ImportError as e:
         refuse(
             f"GSEA against '{gene_set}'",
-            f"decoupler is not importable ({e})",
-            hint="install it (`pip install decoupler==2.1.6`), or set "
-            "biosignal.gene_sets=[] to record the enrichment as "
-            "deliberately omitted from this run",
+            f"decoupler's GSEA kernel is not importable ({e})",
+            hint="install the pinned version (`pip install decoupler==2.1.6`); the "
+            "unadjusted p-values and set sizes come from that kernel rather than "
+            "from the public wrapper. Or set biosignal.gene_sets=[] to record the "
+            "enrichment as deliberately omitted from this run",
         )
     except Exception as e:
         refuse(
@@ -544,6 +551,26 @@ def _report_gsea(cfg, gene_set: str, table: pd.DataFrame, coverage: float) -> No
         print(f"        {p:<38s} NES={v:+.2f}")
 
 
+def _write_gsea_meta(cfg, out, gene_set: str, level: str, metas: list[dict]) -> None:
+    """The method, beside the numbers it produced.
+
+    Which collection and which copy of it, the background, the minimum set size, the
+    permutation count behind every p-value and what the adjustment ran over — so a
+    caption can be written from an artefact rather than from memory.
+    """
+    from . import enrichment
+
+    payload = {
+        "level": level,
+        "scope": ridge_mod.scope_name(cfg.biosignal.tissues),
+        "substrate": cfg.data.substrate,
+        "fdr": cfg.biosignal.fdr,
+        "collection": enrichment.collection_provenance(cfg.biosignal.resources_dir, gene_set),
+        "rankings": metas,
+    }
+    (out / f"gsea_{gene_set}_{level}_meta.json").write_text(json.dumps(payload, indent=2) + "\n")
+
+
 def _gsea(cfg, out, level: str, df: pd.DataFrame) -> None:
     rankings = _gsea_rankings(cfg, df)
     if not rankings:
@@ -561,7 +588,7 @@ def _gsea(cfg, out, level: str, df: pd.DataFrame) -> None:
         )
 
     for gene_set in cfg.biosignal.gene_sets:
-        frames, coverage = [], float("nan")
+        frames, metas, coverage = [], [], float("nan")
         for (contrast, detrended), stat in rankings.items():
             label = f"{level}_{contrast}{'_detrended' if detrended else ''}"
             res = _run_one_gsea(cfg, stat, gene_set, label)
@@ -570,6 +597,8 @@ def _gsea(cfg, out, level: str, df: pd.DataFrame) -> None:
             t.insert(0, "contrast", contrast)
             t.insert(1, "detrended", detrended)
             frames.append(t)
+            metas.append({"contrast": contrast, "detrended": bool(detrended), **res.meta()})
         table = pd.concat(frames, ignore_index=True)
         table.to_csv(out / f"gsea_{gene_set}_{level}.csv", index=False)
+        _write_gsea_meta(cfg, out, gene_set, level, metas)
         _report_gsea(cfg, gene_set, table, coverage)

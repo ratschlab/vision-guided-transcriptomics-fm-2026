@@ -242,6 +242,14 @@ class ModelsConfig:
     # 15.6-22.4); refitting it where those coincide separates its lead from its
     # capacity.
     pca_oracle_matched_components: int = 32
+    # Dimensionality reduction applied to the gene features *before* a
+    # `<correction>_<model>` arm corrects them; 0 corrects at full width. Harmony and
+    # ComBat on 328k x 1152 float32 are the expensive part of that arm, and setting
+    # this to `pca_components` corrects in the same 128-d space `integrate` does, in
+    # minutes rather than hours. It changes what the inner model consumes, so an arm
+    # run this way is a narrower model and does not belong in a column with the
+    # reported one. See `vgtfm/models/corrected.py`.
+    correction_input_dim: int = 0
     ae: AEConfig = field(default_factory=AEConfig)
     cdann: CDANNConfig = field(default_factory=CDANNConfig)
     hvg: HVGConfig = field(default_factory=HVGConfig)
@@ -396,6 +404,16 @@ class BiosignalConfig:
     shared_vocabulary: bool = True
     gene_sets: tuple[str, ...] = ("hallmark", "progeny")
     fdr: float = 0.05
+    # Permutations behind each enrichment p-value, which is the resolution of the
+    # test rather than a speed knob: nothing below 1/gsea_permutations can be
+    # resolved. At 1,000 a third of the Hallmark sets came back at exactly p=0 and no
+    # bound tighter than 0.001 could be reported; at 10,000 the bound is 1e-4 and the
+    # whole panel costs ~9 s per ranking.
+    gsea_permutations: int = 10_000
+    # Fewest members a set must have *in the ranked background* to be scored at all.
+    # Sets below it are dropped rather than tested, which is the family the
+    # Benjamini-Hochberg adjustment then runs over.
+    gsea_min_set_size: int = 15
     resources_dir: str = str(PKG_ROOT / "biosignal" / "resources")
     # Capacity control: also score PCA(frozen, k=latent_dim) so the frozen-vs-refined
     # comparison is not confounded by dimensionality alone.
