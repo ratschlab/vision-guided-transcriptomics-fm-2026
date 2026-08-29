@@ -5,6 +5,10 @@ The representation is fitted on the cohort split named by ``cfg.train.fit_split`
 USZ slides live in the ``test`` split and are never seen while fitting, so the
 embedding that the evaluation stage scores is genuinely out-of-cohort.
 
+A model named ``<correction>_<model>`` (``harmony_ae``, ``combat_pca``, ...) is that
+model fitted on batch-corrected gene features instead of the raw ones; see
+:mod:`vgtfm.models.corrected`.
+
 One embedding matrix per (model, seed) is written for *all* spots, and the
 evaluation stage only ever slices it. Nothing is refitted per fold unless
 ``cfg.train.refit_per_fold`` is set, in which case the evaluation stage does that
@@ -19,6 +23,7 @@ import numpy as np
 
 from .. import perf
 from ..data import tables
+from . import corrected
 from .base import Inputs, build
 from .nn import effective_rank
 
@@ -69,6 +74,8 @@ def fit_and_embed(cfg, inputs: Inputs, rows: np.ndarray, name: str, seed: int):
 
 def run(cfg) -> None:
     out = cfg.sub("train")
+    # Ahead of the table load and of every fit, which is what costs the hour.
+    corrected.validate(cfg.models.names)
     table = tables.load(cfg)
     inputs = Inputs.from_table(table)
     rows = fit_rows(cfg, table)
@@ -87,7 +94,10 @@ def run(cfg) -> None:
     for seed in cfg.seeds:
         for name in cfg.models.names:
             print(f"\n  -- {name} (seed {seed}) --")
-            model, Z, history = fit_and_embed(cfg, inputs, rows, name, seed)
+            model_inputs, inner, correction = corrected.resolve(
+                cfg, table, inputs, name, seed, rows
+            )
+            model, Z, history = fit_and_embed(cfg, model_inputs, rows, inner, seed)
             # Fixed subsample seed, independent of the model seed, so the effective
             # ranks of different models and seeds are measured on the same spots.
             rank = effective_rank(
@@ -95,6 +105,8 @@ def run(cfg) -> None:
             )
             rec = {
                 "model": name,
+                "correction": correction,
+                "inner_model": inner,
                 "seed": seed,
                 "dim": int(Z.shape[1]),
                 "effective_rank": rank,
@@ -107,10 +119,15 @@ def run(cfg) -> None:
                 path = embedding_path(cfg, name, seed)
                 np.save(path, Z)
                 print(f"  [{name}] -> {path}")
+            # Keyed by the outer name: `model.state()` only knows the inner model.
             (cfg.sub("train", "history") / f"{name}__seed-{seed}.json").write_text(
-                json.dumps(model.state(), indent=2, default=str)
+                json.dumps(
+                    {"model": name, "correction": correction, **model.state()},
+                    indent=2,
+                    default=str,
+                )
             )
-            del model, Z
+            del model, Z, model_inputs
             perf.free_cuda()
 
     import pandas as pd

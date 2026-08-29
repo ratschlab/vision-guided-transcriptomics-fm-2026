@@ -134,6 +134,17 @@ def build(name: str, cfg, seed: int = 42) -> Model:
         from .cdann import CDANNModel
 
         return CDANNModel(cfg, seed)
+    from .corrected import parse
+
+    if parse(name) is not None:
+        # The correction needs every spot at once, and `build` is handed a name and
+        # no data, so `train` resolves a corrected arm before it gets here.
+        raise SystemExit(
+            f"'{name}' is a batch-corrected arm and is not built through the "
+            f"registry; the train stage corrects the gene features and builds the "
+            f"inner model. See vgtfm/models/corrected.py."
+        )
+
     from .variants import build_variant
 
     model = build_variant(name, cfg, seed)
