@@ -9,8 +9,10 @@ refinement preserved that gene's signal or erased it.
 Read the quartile table rather than the mean delta-R^2, which averages two opposite
 effects together: a refinement that simply shrinks predictions toward zero lifts
 genes the frozen embedding predicted badly and pushes down the ones it predicted
-well, monotonically across quartiles of the frozen R^2. GSEA on the same ranking
-then says whether the degraded genes are a coherent biological programme or noise.
+well, monotonically across quartiles of the frozen R^2. :func:`enrichment_tail` then
+reads the same ranking twice — by position (GSEA) and by effect size per gene set,
+against a null matched on that same frozen R^2 — because only the second can tell a
+coherent biological programme from the shrinkage the quartile table tabulates.
 
 ``PCA_k(frozen)`` is scored alongside as a capacity control, since the refined
 embedding is narrower than the frozen one and part of any drop is dimensionality.
@@ -351,7 +353,7 @@ def _score_level(
 
     summary = _level_summary(df, acc, n_folds, alphas, saturated)
     print(quart.to_string(index=False))
-    _gsea(cfg, out, level, df)
+    enrichment_tail(cfg, out, level, df)
     return df, summary
 
 
@@ -407,7 +409,10 @@ def run(cfg) -> None:
         )
     )
     index.drop_cache()
-    print(f"\n  wrote {out}/per_gene_r2.csv, quartiles_*.csv, summary.json")
+    print(
+        f"\n  wrote {out}/per_gene_r2.csv, quartiles_*.csv, summary.json, "
+        f"gsea_*.csv and setmean_*.csv with their provenance"
+    )
 
 
 def _gsea_rankings(cfg, df: pd.DataFrame) -> dict[tuple[str, bool], pd.Series]:
@@ -566,27 +571,13 @@ def _write_gsea_meta(cfg, out, gene_set: str, level: str, metas: list[dict]) -> 
         "substrate": cfg.data.substrate,
         "fdr": cfg.biosignal.fdr,
         "collection": enrichment.collection_provenance(cfg.biosignal.resources_dir, gene_set),
+        "versions": enrichment.scoring_versions(),
         "rankings": metas,
     }
     (out / f"gsea_{gene_set}_{level}_meta.json").write_text(json.dumps(payload, indent=2) + "\n")
 
 
-def _gsea(cfg, out, level: str, df: pd.DataFrame) -> None:
-    rankings = _gsea_rankings(cfg, df)
-    if not rankings:
-        refuse(
-            f"GSEA for the '{level}' level",
-            "none of the configured contrasts could be formed from the scored columns",
-            hint="biosignal.gsea_contrasts other than guided_vs_frozen need include_pca_control on",
-        )
-    skipped = {c for c in cfg.biosignal.gsea_contrasts} - {c for c, _ in rankings}
-    if skipped:
-        print(
-            f"    GSEA: {', '.join(sorted(skipped))} not scored (no capacity "
-            f"control in this run) — the enrichment cannot separate the width "
-            f"change from information"
-        )
-
+def _gsea(cfg, out, level: str, rankings: dict) -> None:
     for gene_set in cfg.biosignal.gene_sets:
         frames, metas, coverage = [], [], float("nan")
         for (contrast, detrended), stat in rankings.items():
@@ -602,3 +593,124 @@ def _gsea(cfg, out, level: str, df: pd.DataFrame) -> None:
         table.to_csv(out / f"gsea_{gene_set}_{level}.csv", index=False)
         _write_gsea_meta(cfg, out, gene_set, level, metas)
         _report_gsea(cfg, gene_set, table, coverage)
+
+
+def _run_one_set_mean(cfg, stat: pd.Series, baseline: pd.Series, gene_set: str, label: str):
+    from . import enrichment
+
+    b = cfg.biosignal
+    try:
+        return enrichment.run_set_mean(
+            stat,
+            b.resources_dir,
+            gene_set,
+            label=label,
+            seed=cfg.folds.seed,
+            times=b.gsea_permutations,
+            n_boot=b.setmean_bootstrap,
+            min_n=b.gsea_min_set_size,
+            ci=b.setmean_ci,
+            baseline=baseline if b.setmean_baseline_bins >= 2 else None,
+            baseline_bins=b.setmean_baseline_bins,
+        )
+    except Exception as e:
+        refuse(
+            f"the per-set mean test against '{gene_set}'",
+            f"{type(e).__name__}: {e}",
+            hint=f"gene sets are read from {b.resources_dir}",
+        )
+
+
+def _report_set_mean(cfg, gene_set: str, table: pd.DataFrame) -> None:
+    """Print both tests side by side, because only the matched one is news.
+
+    A set clears the against-background column whenever it is made of well-predicted
+    genes; the matched column is the only count that is about the set's biology.
+    """
+    fdr = cfg.biosignal.fdr
+    for contrast, t in table.groupby("contrast", sort=False):
+        bg = float(t["background_mean"].iloc[0])
+        counts = {k: int((t[f"padj_vs_{k}"] < fdr).sum()) for k in ("background", "matched")}
+        print(
+            f"      {contrast:<22s} {len(t)} sets, background mean {bg:+.4f}, "
+            f"{int((t['mean_delta'] < bg).sum())} below it"
+        )
+        print(
+            f"        FDR<{fdr}: {counts['background']} vs background, "
+            f"{counts['matched']} vs a baseline-matched null"
+        )
+
+
+def _set_mean(cfg, out, level: str, rankings: dict, baseline: pd.Series) -> None:
+    """Per-set mean delta-R^2 with its permutation tests, beside the GSEA.
+
+    Same rankings, different question: effect size rather than position. The detrended
+    rankings are deliberately not scored here — the baseline-matched null applies that
+    same correction to the null instead of to the statistic, and doing both would
+    subtract the trend twice.
+    """
+    from . import enrichment
+
+    b = cfg.biosignal
+    rankings = {c: stat for (c, detrended), stat in rankings.items() if not detrended}
+    if not rankings:
+        return
+
+    for gene_set in b.gene_sets:
+        frames, metas = [], []
+        for contrast, stat in rankings.items():
+            label = f"{level}_{contrast}"
+            res = _run_one_set_mean(cfg, stat, baseline, gene_set, label)
+            t = res.table.copy()
+            t.insert(0, "contrast", contrast)
+            frames.append(t)
+            metas.append({"contrast": contrast, **res.meta()})
+        table = pd.concat(frames, ignore_index=True)
+        table.to_csv(out / f"setmean_{gene_set}_{level}.csv", index=False)
+        (out / f"setmean_{gene_set}_{level}_meta.json").write_text(
+            json.dumps(
+                {
+                    "level": level,
+                    "scope": ridge_mod.scope_name(b.tissues),
+                    "substrate": cfg.data.substrate,
+                    "fdr": b.fdr,
+                    "collection": enrichment.collection_provenance(b.resources_dir, gene_set),
+                    "versions": enrichment.scoring_versions(),
+                    "rankings": metas,
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+        print(f"    set-mean {gene_set}:")
+        _report_set_mean(cfg, gene_set, table)
+
+
+def enrichment_tail(cfg, out, level: str, df: pd.DataFrame) -> None:
+    """Everything downstream of one level's per-gene R^2.
+
+    A pure function of the scored columns: no embedding, no ridge, no raw counts. The
+    rankings are built once and handed to both readings, so the two tables in a scope
+    directory cannot be scored on different numbers.
+    """
+    b = cfg.biosignal
+    rankings = _gsea_rankings(cfg, df)
+    if not rankings:
+        refuse(
+            f"the enrichment for the '{level}' level",
+            "none of the configured contrasts could be formed from the scored columns",
+            hint="biosignal.gsea_contrasts other than guided_vs_frozen need include_pca_control on",
+        )
+    skipped = set(b.gsea_contrasts) - {c for c, _ in rankings}
+    if skipped:
+        print(
+            f"    enrichment: {', '.join(sorted(skipped))} not scored (no capacity "
+            f"control in this run) — it cannot separate the width change from "
+            f"information"
+        )
+
+    # The frozen R^2 the matched null bins on. Not a ranking: it is the *baseline* each
+    # contrast's change is measured from, and the same one for all of them.
+    baseline = pd.Series(df["r2_frozen"].to_numpy(), index=df["gene"].astype(str)).dropna()
+    _gsea(cfg, out, level, rankings)
+    _set_mean(cfg, out, level, rankings, baseline)

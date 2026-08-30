@@ -195,14 +195,33 @@ def detrend_on_baseline(baseline: np.ndarray, stat: np.ndarray, bins: int = 50) 
     the extremes. What survives is the part of the change not explained by the
     gene's starting predictivity — the part a pathway claim can rest on.
     """
-    baseline = np.asarray(baseline, dtype=np.float64)
     stat = np.asarray(stat, dtype=np.float64)
-    if bins < 2 or len(stat) < bins:
+    strata = baseline_strata(baseline, bins)
+    if strata is None:
         return stat.copy()
     out = stat.copy()
-    for idx in np.array_split(np.argsort(baseline, kind="stable"), bins):
+    for k in range(strata.max() + 1):
+        idx = np.flatnonzero(strata == k)
         if len(idx):
             out[idx] -= stat[idx].mean()
+    return out
+
+
+def baseline_strata(baseline: np.ndarray, bins: int = 50) -> np.ndarray | None:
+    """Equal-count bin id per gene, ranked on *baseline*; ``None`` if it cannot bin.
+
+    The grouping :func:`detrend_on_baseline` centres within, exposed separately
+    because the baseline-matched permutation null needs the same strata: shuffling
+    gene labels *within* a bin of the frozen R^2 holds a set's predictivity profile
+    fixed and randomises only which gene of comparable predictivity carries which
+    change.
+    """
+    baseline = np.asarray(baseline, dtype=np.float64)
+    if bins < 2 or len(baseline) < bins:
+        return None
+    out = np.empty(len(baseline), dtype=np.int64)
+    for k, idx in enumerate(np.array_split(np.argsort(baseline, kind="stable"), bins)):
+        out[idx] = k
     return out
 
 

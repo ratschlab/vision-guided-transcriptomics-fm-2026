@@ -431,6 +431,23 @@ class BiosignalConfig:
         "capacity_vs_frozen",
         "guided_vs_capacity",
     )
+    # Bootstrap resamples behind the per-set interval the dot plot draws. Resampling
+    # is over *member genes*, so the interval is a spread rather than a test and is
+    # not over donors.
+    setmean_bootstrap: int = 10_000
+    setmean_ci: float = 0.95
+    # Equal-count bins of the frozen R^2 the baseline-matched permutation null shuffles
+    # within. Change in R^2 is strongly anti-correlated with the frozen R^2 (Spearman
+    # ~-0.6 per gene, ~-0.8 per set) and curated sets are built from well-predicted
+    # genes, so a set clears the plain background test on composition alone: 41 of the
+    # 50 Hallmark sets do, and 3 survive this null. Below 2 switches it off and leaves
+    # the matched columns NaN.
+    setmean_baseline_bins: int = 20
+    # Fold levels the per-gene R^2 scatter draws, in order. The stage scores every
+    # level the cohort supports; the manuscript's figure reads within-donor against
+    # across-donor, and the middle level is a run-review view. Empty draws every
+    # level scored.
+    per_gene_r2_levels: tuple[str, ...] = ("cross_replicate", "cross_donor")
     # Sensitivity analysis, off by default. Every contrast is additionally scored on a
     # ranking centred within this many equal-count bins of the frozen R^2, which sweeps
     # out the shrinkage trend `quartile_table` tabulates. Worth running when a result
