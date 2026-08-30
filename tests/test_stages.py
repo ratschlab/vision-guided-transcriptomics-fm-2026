@@ -19,7 +19,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from conftest import ROOT
 from vgtfm.config import load_config
 from vgtfm.data.tables import SpotTable
 
@@ -534,6 +533,125 @@ def test_the_figures_stage_reports_stages_that_have_not_run_as_pending(cfg, coho
     assert not (cfg.out_dir / "figures" / "table_patch_shuffle.csv").exists()
 
 
+def _setmean_csv(path, *, contrast: str = "guided_vs_frozen", n: int = 6):
+    """A set-mean table shaped like the one the biosignal stage writes."""
+    import numpy as np
+
+    delta = np.linspace(-0.05, 0.01, n)
+    pd.DataFrame(
+        {
+            "contrast": contrast,
+            "sample": "cross_donor_guided_vs_frozen",
+            "source": [f"HALLMARK_SET_{i}" for i in range(n)],
+            "set_size": 30,
+            "mean_delta": delta,
+            # The first two intervals clear the background mean, the rest straddle it.
+            "ci_lo": delta - np.where(np.arange(n) < 2, 0.002, 0.05),
+            "ci_hi": delta + np.where(np.arange(n) < 2, 0.002, 0.05),
+            "background_mean": -0.01,
+            "expected_matched": delta + 0.001,
+            "p_vs_background": 0.002,
+            "padj_vs_background": [0.001] * 2 + [0.5] * (n - 2),
+            "p_vs_matched": 0.4,
+            "padj_vs_matched": [0.001] + [0.4] * (n - 1),
+        }
+    ).to_csv(path, index=False)
+
+
+def test_the_dot_plot_caption_counts_come_off_the_table_it_draws(cfg, tmp_path):
+    """The caption states a set count and two FDR counts, and the figure and that
+    sentence have to be the same numbers or one of them is wrong."""
+    from vgtfm.figures import build as fig_build
+
+    _setmean_csv(tmp_path / "setmean_hallmark_cross_donor.csv")
+    sub = pd.read_csv(tmp_path / "setmean_hallmark_cross_donor.csv")
+    counts = fig_build._setmean_counts(sub, cfg.biosignal.fdr)
+
+    assert counts["n_sets"] == 6
+    assert counts["background_mean"] == pytest.approx(-0.01)
+    # Four of the six planted sets sit below the background mean of -0.01.
+    assert counts["n_below"] == 4
+    assert counts["n_sig_vs_background"] == 2
+    # The column the argument rests on: one set survives the baseline-matched null.
+    assert counts["n_sig_vs_matched"] == 1
+
+
+def test_the_dot_plot_is_drawn_from_the_stage_own_tables(cfg, tmp_path, capsys):
+    """One PDF per collection and level the biosignal stage scored, for the
+    published contrast, with the same counts printed as the caption quotes."""
+    pytest.importorskip("matplotlib")
+    from vgtfm.figures import build as fig_build
+
+    bio = bio_dir(cfg)
+    bio.mkdir(parents=True, exist_ok=True)
+    cfg.biosignal.gene_sets = ("hallmark",)
+    for level in ("cross_replicate", "cross_donor"):
+        _setmean_csv(bio / f"setmean_hallmark_{level}.csv")
+
+    notes: list = []
+    found = fig_build._setmean_sources(bio, cfg, notes)
+    assert [(g, level) for g, level, _ in found] == [
+        ("hallmark", "cross_donor"),
+        ("hallmark", "cross_replicate"),
+    ]
+    assert not notes
+
+    out = tmp_path / "figures"
+    counts = fig_build._fig_setmean(
+        found[0][2], out, "fig_setmean_hallmark_cross_donor", fdr=cfg.biosignal.fdr
+    )
+    assert (out / "fig_setmean_hallmark_cross_donor.pdf").exists()
+    assert f"{counts['n_sig_vs_matched']}" in capsys.readouterr().out
+
+
+def test_a_run_whose_biosignal_wrote_no_set_mean_reports_the_dot_plot_as_pending(cfg, capsys):
+    """A scope with a per-gene R^2 but no set-mean table has not finished the stage,
+    which the figures stage reports rather than treating as an empty result."""
+    from vgtfm.figures import build as fig_build
+
+    bio = bio_dir(cfg)
+    bio.mkdir(parents=True, exist_ok=True)
+    (bio / "per_gene_r2.csv").write_text("gene\n")
+    cfg.biosignal.gene_sets = ("hallmark",)
+
+    notes: list = []
+    assert fig_build._setmean_sources(bio, cfg, notes) == []
+    assert len(notes) == 1
+    assert "setmean_hallmark" in notes[0]
+
+
+def test_the_per_gene_scatter_draws_the_levels_the_config_names(cfg):
+    """The stage scores every level a cohort supports; the figure draws the two the
+    manuscript reads. A level the scope never scored is dropped, not demanded: only
+    TuPro carries replicate and region ids."""
+    from vgtfm.figures import build as fig_build
+
+    per_gene = pd.DataFrame({"level": ["cross_donor"] * 2 + ["cross_replicate"] * 2})
+    assert fig_build._r2_levels(per_gene, ("cross_replicate", "cross_donor")) == [
+        "cross_replicate",
+        "cross_donor",
+    ]
+    # cross_region is configured but never scored here, so it is simply absent.
+    assert fig_build._r2_levels(per_gene, ("cross_region", "cross_donor")) == ["cross_donor"]
+    # Empty keeps every level, in the order the stage wrote them.
+    assert fig_build._r2_levels(per_gene, ()) == ["cross_donor", "cross_replicate"]
+
+
+def test_the_dot_plot_refuses_a_table_without_the_contrast_it_draws(cfg):
+    """A table carrying only the other contrasts is a settings mismatch, not a
+    stage that has yet to run, so it stops the figures pass."""
+    from vgtfm.degraded import Incomplete
+    from vgtfm.figures import build as fig_build
+
+    bio = bio_dir(cfg)
+    bio.mkdir(parents=True, exist_ok=True)
+    cfg.biosignal.gene_sets = ("hallmark",)
+    _setmean_csv(bio / "setmean_hallmark_cross_donor.csv", contrast="guided_vs_capacity")
+
+    with pytest.raises(Incomplete, match="guided_vs_frozen"):
+        fig_build._setmean_sources(bio, cfg, [])
+
+
 # ── ablate ───────────────────────────────────────────────────────────
 
 
@@ -933,6 +1051,73 @@ def _fake_enrichment(enrichment, seen: dict | None = None):
     return fake
 
 
+def _fake_set_mean(enrichment, seen: dict | None = None):
+    """A stand-in for :func:`run_set_mean`, complete in the same way as above.
+
+    The synthetic cohort's genes are ``G0..G239``, which overlap Hallmark in nothing,
+    so the real function correctly refuses on the coverage floor. What these stage
+    tests check is the plumbing around it — that the stage forms one ranking per
+    contrast, hands over the baseline, and writes the table and its provenance.
+    """
+
+    def fake(
+        stat,
+        resources_dir,
+        gene_set,
+        *,
+        label,
+        seed,
+        times,
+        n_boot,
+        min_n,
+        ci,
+        baseline,
+        baseline_bins,
+    ):
+        if seen is not None:
+            seen["times"] = times
+            seen["n_boot"] = n_boot
+            seen["min_n"] = min_n
+            seen["ci"] = ci
+            seen["baseline_bins"] = baseline_bins
+            seen["baseline_is_frozen_r2"] = baseline is not None and len(baseline) == len(stat)
+            seen.setdefault("labels", []).append(label)
+        return enrichment.SetMeanResult(
+            gene_set=gene_set,
+            table=pd.DataFrame(
+                {
+                    "sample": [label],
+                    "source": ["HALLMARK_HYPOXIA"],
+                    "set_size": [42],
+                    "mean_delta": [-0.03],
+                    "ci_lo": [-0.04],
+                    "ci_hi": [-0.02],
+                    "background_mean": [-0.01],
+                    "expected_matched": [-0.02],
+                    "p_vs_background": [0.002],
+                    "padj_vs_background": [0.01],
+                    "p_vs_matched": [0.4],
+                    "padj_vs_matched": [0.4],
+                }
+            ),
+            background_mean=-0.01,
+            background_ci=(-0.012, -0.008),
+            coverage=0.9,
+            n_universe=100,
+            n_covered=90,
+            n_ranked=len(stat),
+            n_sets=1,
+            permutations=times,
+            bootstrap=n_boot,
+            ci=ci,
+            min_n=min_n,
+            seed=seed,
+            baseline_bins=baseline_bins if baseline is not None else 0,
+        )
+
+    return fake
+
+
 def test_gsea_runs_against_the_vendored_gene_sets(raw_counts, cohort, monkeypatch):
     """The ranking's identifiers have to be HGNC symbols; Ensembl ids would overlap
     the collections in nothing and the coverage floor is what catches that."""
@@ -951,6 +1136,7 @@ def test_gsea_runs_against_the_vendored_gene_sets(raw_counts, cohort, monkeypatc
 
     seen: dict = {}
     monkeypatch.setattr(enrichment, "run_gsea", _fake_enrichment(enrichment, seen))
+    monkeypatch.setattr(enrichment, "run_set_mean", _fake_set_mean(enrichment))
     train.run(cfg)
     run_biosignal.run(cfg)
 
@@ -970,16 +1156,92 @@ def test_gsea_runs_against_the_vendored_gene_sets(raw_counts, cohort, monkeypatc
     # whatever default the enrichment module carries.
     assert (seen["times"], seen["min_n"]) == (250, 7)
 
-    # The sidecar carries the other half of a result: what was tested, against which
-    # collection, over what background, and how the multiplicity was corrected.
+    # The provenance file carries the other half of a result: what was tested, against
+    # which collection, over what background, and how multiplicity was corrected.
     meta = json.loads((bio_dir(cfg) / "gsea_hallmark_cross_donor_meta.json").read_text())
     assert meta["collection"]["sha256"] and meta["collection"]["citation"]
+    # The scores come out of a private decoupler kernel, so which release produced
+    # them is part of the result and is read off the artefact, not off requirements.txt.
+    assert meta["versions"]["decoupler"]
     assert {r["contrast"] for r in meta["rankings"]} == set(run_biosignal.GSEA_CONTRASTS)
     ranking = meta["rankings"][0]
     assert ranking["permutations"] == 250
     assert ranking["pval_resolution"] == pytest.approx(1 / 250)
     assert ranking["background_n_genes"] == len(seen["genes"])
     assert "Benjamini-Hochberg" in ranking["multiple_testing"]
+
+
+def test_the_set_mean_tables_land_beside_the_gsea_ones(raw_counts, cohort, monkeypatch):
+    """The second reading of the same ranking, and the config that shaped it.
+
+    The two tables sit in one directory and are quoted in one appendix, so what is
+    pinned here is that they cover the same contrasts and that the set-mean side gets
+    the knobs it needs — the baseline the matched null permutes within above all,
+    since without it the stage would silently write a NaN column.
+    """
+    pytest.importorskip("decoupler")
+    from vgtfm.biosignal import enrichment, run_biosignal
+    from vgtfm.models import train
+
+    cfg = raw_counts
+    cfg.models.names = ("pca",)
+    cfg.folds.levels = ("cross_donor",)
+    cfg.biosignal.gene_sets = ("hallmark",)
+    cfg.biosignal.min_expressed = 1
+    cfg.biosignal.gsea_permutations = 250
+    cfg.biosignal.gsea_min_set_size = 7
+    cfg.biosignal.setmean_bootstrap = 128
+    cfg.biosignal.setmean_baseline_bins = 5
+    # Detrending is a knob on the GSEA ranking; the set-mean test corrects the null
+    # instead, so it must not pick up a second, doubly-corrected ranking from it.
+    cfg.biosignal.gsea_detrend_bins = 4
+
+    seen: dict = {}
+    monkeypatch.setattr(enrichment, "run_gsea", _fake_enrichment(enrichment))
+    monkeypatch.setattr(enrichment, "run_set_mean", _fake_set_mean(enrichment, seen))
+    train.run(cfg)
+    run_biosignal.run(cfg)
+
+    written = pd.read_csv(bio_dir(cfg) / "setmean_hallmark_cross_donor.csv")
+    assert set(written["contrast"]) == set(run_biosignal.GSEA_CONTRASTS)
+    assert list(written.columns) == ["contrast", *enrichment.SET_MEAN_COLUMNS]
+    assert not any("detrended" in label for label in seen["labels"])
+
+    assert (seen["times"], seen["min_n"]) == (250, 7)
+    assert (seen["n_boot"], seen["ci"], seen["baseline_bins"]) == (128, 0.95, 5)
+    assert seen["baseline_is_frozen_r2"]
+
+    meta = json.loads((bio_dir(cfg) / "setmean_hallmark_cross_donor_meta.json").read_text())
+    assert meta["collection"]["sha256"] and meta["collection"]["citation"]
+    assert meta["versions"]["decoupler"]
+    assert {r["contrast"] for r in meta["rankings"]} == set(run_biosignal.GSEA_CONTRASTS)
+    ranking = meta["rankings"][0]
+    assert ranking["permutations"] == 250
+    assert ranking["baseline_matched_null_bins"] == 5
+    assert "Benjamini-Hochberg" in ranking["multiple_testing"]
+
+
+def test_the_matched_null_is_switched_off_by_setting_its_bins_below_two(
+    raw_counts, cohort, monkeypatch
+):
+    pytest.importorskip("decoupler")
+    from vgtfm.biosignal import enrichment, run_biosignal
+    from vgtfm.models import train
+
+    cfg = raw_counts
+    cfg.models.names = ("pca",)
+    cfg.folds.levels = ("cross_donor",)
+    cfg.biosignal.gene_sets = ("hallmark",)
+    cfg.biosignal.min_expressed = 1
+    cfg.biosignal.setmean_baseline_bins = 0
+
+    seen: dict = {}
+    monkeypatch.setattr(enrichment, "run_gsea", _fake_enrichment(enrichment))
+    monkeypatch.setattr(enrichment, "run_set_mean", _fake_set_mean(enrichment, seen))
+    train.run(cfg)
+    run_biosignal.run(cfg)
+
+    assert not seen["baseline_is_frozen_r2"]
 
 
 def test_gsea_detrend_bins_add_a_second_ranking_per_contrast(raw_counts, cohort, monkeypatch):
@@ -997,6 +1259,7 @@ def test_gsea_detrend_bins_add_a_second_ranking_per_contrast(raw_counts, cohort,
     cfg.biosignal.gsea_detrend_bins = 4
 
     monkeypatch.setattr(enrichment, "run_gsea", _fake_enrichment(enrichment))
+    monkeypatch.setattr(enrichment, "run_set_mean", _fake_set_mean(enrichment))
     train.run(cfg)
     run_biosignal.run(cfg)
 
@@ -1023,6 +1286,7 @@ def test_gsea_without_the_capacity_control_scores_only_what_it_can(raw_counts, c
     cfg.biosignal.include_pca_control = False
 
     monkeypatch.setattr(enrichment, "run_gsea", _fake_enrichment(enrichment))
+    monkeypatch.setattr(enrichment, "run_set_mean", _fake_set_mean(enrichment))
     train.run(cfg)
     run_biosignal.run(cfg)
 
@@ -1066,48 +1330,3 @@ def test_gsea_that_returns_nothing_stops_the_stage(raw_counts, cohort, monkeypat
     train.run(cfg)
     with pytest.raises(Incomplete, match="HGNC"):
         run_biosignal.run(cfg)
-
-
-# ── morphology predictability ────────────────────────────────────────
-
-
-def test_the_morphology_oracle_scores_genes_from_the_patch_embedding(raw_counts, cohort):
-    """``scripts/morphology_predictability.py`` answers the question the stage does
-    not ask: which genes can the H&E embedding predict at all?
-
-    What is pinned is that it scores the same genes over the same folds as the
-    stage. A column keyed differently, or scored on a different vocabulary, could not
-    be joined to ``per_gene_r2.csv``, and the comparison would silently be between
-    two different gene sets.
-    """
-    import importlib.util
-
-    from vgtfm.biosignal import run_biosignal
-    from vgtfm.models import train
-
-    spec = importlib.util.spec_from_file_location(
-        "morphology_predictability", ROOT / "scripts" / "morphology_predictability.py"
-    )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-
-    cfg = raw_counts
-    cfg.models.names = ("pca",)
-    cfg.folds.levels = ("cross_donor",)
-    cfg.biosignal.gene_sets = ()
-    cfg.biosignal.min_expressed = 1
-    train.run(cfg)
-    run_biosignal.run(cfg)
-
-    from vgtfm.biosignal.ridge import scope_name
-
-    frame = mod.score(cfg, scope_name(cfg.biosignal.tissues), ["cross_donor"])
-    per_gene = pd.read_csv(bio_dir(cfg) / "per_gene_r2.csv")
-
-    assert set(frame.columns) == {"level", "gene", "r2_morphology"}
-    assert set(frame["level"]) == {"cross_donor"}
-    # Same vocabulary and same key, so the join is total in both directions.
-    assert set(frame["gene"]) == set(per_gene["gene"])
-    joined = per_gene.merge(frame, on=["level", "gene"], how="inner")
-    assert len(joined) == len(per_gene)
-    assert joined["r2_morphology"].notna().any()

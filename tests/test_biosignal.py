@@ -13,18 +13,23 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from vgtfm.biosignal import enrichment as enrichment_mod
 from vgtfm.biosignal.enrichment import (
     GENE_SET_SCHEMAS,
     RESULT_COLUMNS,
+    SET_MEAN_COLUMNS,
     benjamini_hochberg,
     check_coverage,
     collection_provenance,
     load_net,
     run_gsea,
+    run_set_mean,
+    set_members,
 )
 from vgtfm.biosignal.ridge import (
     R2Accumulator,
     alpha_grid,
+    baseline_strata,
     detrend_on_baseline,
     fit_ridge_svd,
     grid_saturation,
@@ -525,5 +530,337 @@ def test_every_collection_can_name_and_identify_itself(gene_set):
     all three."""
     prov = collection_provenance(RESOURCES, gene_set)
     assert prov["collection"] and prov["citation"]
-    assert len(prov["sha256"]) == 64
+    assert len(prov["sha256"]) == 64 and len(prov["md5"]) == 32
     assert prov["n_sets"] > 0 and prov["n_genes"] > 0
+
+
+# ── baseline strata ──────────────────────────────────────────────────
+
+
+def test_baseline_strata_are_equal_count_and_ordered():
+    rng = np.random.default_rng(0)
+    baseline = rng.normal(size=200)
+    strata = baseline_strata(baseline, bins=4)
+    counts = np.bincount(strata)
+    assert list(counts) == [50, 50, 50, 50]
+    # A higher bin id means a higher baseline: the bins are ranks, not values.
+    means = [baseline[strata == k].mean() for k in range(4)]
+    assert means == sorted(means)
+
+
+def test_baseline_strata_refuse_to_bin_what_they_cannot():
+    assert baseline_strata(np.arange(10.0), bins=1) is None
+    assert baseline_strata(np.arange(3.0), bins=5) is None
+
+
+def test_detrending_still_centres_within_the_strata_it_reports():
+    rng = np.random.default_rng(1)
+    baseline = rng.normal(size=120)
+    stat = 2.0 * baseline + rng.normal(scale=0.01, size=120)
+    strata = baseline_strata(baseline, bins=6)
+    out = detrend_on_baseline(baseline, stat, bins=6)
+    for k in range(6):
+        assert abs(out[strata == k].mean()) < 1e-12
+
+
+# ── set membership ───────────────────────────────────────────────────
+
+
+def test_set_members_keeps_only_sets_that_clear_the_floor():
+    net = pd.DataFrame(
+        {
+            "source": ["big"] * 5 + ["small"] * 2 + ["absent"] * 4,
+            "target": list("ABCDE") + list("AB") + list("WXYZ"),
+        }
+    )
+    sets = set_members(np.array(list("ABCDEF")), net, min_n=3)
+    assert sorted(sets) == ["big"]
+    assert list(sets["big"]) == [0, 1, 2, 3, 4]
+
+
+def test_set_members_ignores_duplicate_pairs():
+    net = pd.DataFrame({"source": ["s"] * 4, "target": ["A", "A", "B", "C"]})
+    (only,) = set_members(np.array(list("ABC")), net, min_n=3).values()
+    assert list(only) == [0, 1, 2]
+
+
+@pytest.mark.parametrize("gene_set", sorted(GENE_SET_SCHEMAS))
+def test_set_sizes_agree_with_the_kernel_the_gsea_table_uses(gene_set):
+    """The two tables sit side by side, so their ``set_size`` columns must match.
+
+    Membership is resolved here without decoupler; this is what keeps that
+    independence from turning into a silent disagreement with the GSEA beside it.
+    """
+    prune = pytest.importorskip("decoupler.pp.net").prune
+    idxmat = pytest.importorskip("decoupler.pp.net").idxmat
+
+    resources = Path(__file__).resolve().parents[1] / "vgtfm" / "biosignal" / "resources"
+    net = load_net(resources, gene_set)
+    features = np.array(sorted(set(net["target"].astype(str)))[:1500])
+
+    mine = set_members(features, net, min_n=15)
+    sources, _cnct, _starts, offsets = idxmat(
+        features=features, net=prune(features=features, net=net, tmin=15, verbose=False)
+    )
+    assert dict(zip([str(s) for s in sources], np.asarray(offsets, dtype=int))) == {
+        k: len(v) for k, v in mine.items()
+    }
+
+
+# ── the per-set mean and its two nulls ───────────────────────────────
+
+
+def _planted_ranking(n_genes=8000, seed=0):
+    """A background of noise, one set displaced, one set not.
+
+    The background is wide enough that the displaced set barely moves its own
+    reference: 40 genes at $-0.5$ shift the mean of 8,000 by $-0.0025$, well inside
+    what a typical set's interval covers. A narrow background would make *every* set
+    differ from a mean it had itself dragged down, which is a property of the fixture
+    rather than of the test.
+    """
+    rng = np.random.default_rng(seed)
+    genes = np.array([f"G{i:04d}" for i in range(n_genes)])
+    values = rng.normal(scale=0.02, size=n_genes)
+    values[:40] -= 0.5  # the displaced set's members
+    net = pd.DataFrame(
+        {
+            "source": ["moved"] * 40 + ["typical"] * 40,
+            "target": list(genes[:40]) + list(genes[100:140]),
+        }
+    )
+    return pd.Series(values, index=genes), net
+
+
+def test_the_null_permutes_gene_labels_rather_than_resampling_sets():
+    """One permutation of the whole background per replicate, read by every set.
+
+    Two properties the appendix states and the p-values depend on: set sizes are held
+    fixed, so the null's spread is the sampling variability of a set mean of that size;
+    and the null centres on the background mean, which is what lets one null serve both
+    the against-zero and the against-the-background reading.
+    """
+    rng = np.random.default_rng(0)
+    values = rng.normal(size=500)
+    members = [np.arange(20), np.arange(100, 400)]
+
+    null = enrichment_mod._permutation_null(values, members, times=4000, seed=1)
+
+    assert null.shape == (2, 4000)
+    assert null.mean(axis=1) == pytest.approx(values.mean(), abs=0.01)
+    # The spread is set by the set's size and by the size of the background it is
+    # drawn from, with the finite-population correction that says this is a
+    # permutation of a fixed list of values rather than a bootstrap over them.
+    n_bg = len(values)
+    for row, n in zip(null, (20, 300)):
+        expected = values.std() / np.sqrt(n) * np.sqrt((n_bg - n) / (n_bg - 1))
+        assert row.std() == pytest.approx(expected, rel=0.1)
+
+
+def test_the_matched_null_permutes_only_within_a_stratum():
+    """ "Permuting within equal-count bins of the frozen R^2" has to mean exactly that.
+
+    Each stratum's multiset of values is preserved, so a set's null draws keep its own
+    baseline-predictivity profile and only which gene of a given predictivity carries
+    which change is randomised. The two-stratum case below is the smallest one where
+    an unstratified permutation would visibly differ: every value in the low stratum is
+    below every value in the high one, so a mixed draw shows up in the mean.
+    """
+    values = np.concatenate([np.full(200, -1.0), np.full(200, 1.0)])
+    strata = np.concatenate([np.zeros(200, dtype=np.int64), np.ones(200, dtype=np.int64)])
+    members = [np.arange(180)]  # entirely inside the low stratum
+
+    matched = enrichment_mod._permutation_null(values, members, times=200, seed=1, strata=strata)
+    plain = enrichment_mod._permutation_null(values, members, times=200, seed=1)
+
+    # Within its own stratum the set can only ever draw -1, which is what it observes.
+    assert np.all(matched == -1.0)
+    # Without the strata the same set draws from both halves and lands near zero.
+    assert plain.mean() == pytest.approx(0.0, abs=0.05)
+
+
+def test_the_matched_null_reproduces_the_bins_the_stage_permutes_within():
+    """The strata the test uses are the ones :func:`baseline_strata` defines.
+
+    The appendix quotes one number for the binning -- 20 equal-count bins of the frozen
+    R^2 -- and it has to describe both the detrended ranking and this null, or the two
+    corrections are not the same correction applied in two places.
+    """
+    rng = np.random.default_rng(0)
+    stat = pd.Series(rng.normal(size=400), index=[f"G{i:04d}" for i in range(400)])
+    baseline = pd.Series(rng.uniform(size=400), index=stat.index)
+
+    strata = enrichment_mod._strata_for(stat, baseline, 20)
+    assert np.array_equal(strata, baseline_strata(baseline.to_numpy(), 20))
+    assert np.bincount(strata).tolist() == [20] * 20
+    # A baseline that does not cover the ranking leaves the matched columns NaN
+    # rather than binning on a silently reindexed vector.
+    assert enrichment_mod._strata_for(stat, baseline.iloc[:399], 20) is None
+    assert enrichment_mod._strata_for(stat, None, 20) is None
+
+
+def test_run_set_mean_writes_every_column_a_caption_needs(tmp_path, monkeypatch):
+    stat, net = _planted_ranking()
+    monkeypatch.setattr(enrichment_mod, "load_net", lambda *_a, **_k: net)
+    monkeypatch.setattr(enrichment_mod, "check_coverage", lambda *_a, **_k: (1.0, 80, 80))
+
+    res = run_set_mean(stat, tmp_path, "hallmark", times=2000, n_boot=500, min_n=15)
+    assert list(res.table.columns) == SET_MEAN_COLUMNS
+    assert res.n_sets == 2
+    assert res.table["set_size"].tolist() == [40, 40]
+    # Ranked by effect size, most negative first, which is the order the figure draws.
+    assert res.table["source"].tolist() == ["moved", "typical"]
+    meta = res.meta()
+    assert meta["permutations"] == 2000
+    assert meta["background_n_genes"] == len(stat)
+    assert meta["pval_resolution"] == pytest.approx(1 / 2000)
+
+
+def test_a_displaced_set_clears_both_tests_and_a_typical_one_clears_neither(tmp_path, monkeypatch):
+    stat, net = _planted_ranking()
+    monkeypatch.setattr(enrichment_mod, "load_net", lambda *_a, **_k: net)
+    monkeypatch.setattr(enrichment_mod, "check_coverage", lambda *_a, **_k: (1.0, 80, 80))
+
+    t = run_set_mean(stat, tmp_path, "hallmark", times=2000, n_boot=500).table.set_index("source")
+    assert t.loc["moved", "padj_vs_background"] < 0.01
+    # The untouched set sits on the background mean, which the whole ranking shares.
+    assert t.loc["typical", "padj_vs_background"] > 0.05
+    # The bars the figure draws, on the same fact: a set the data cannot separate from
+    # the transcriptome-wide average is one whose interval covers the line drawn at it.
+    assert t.loc["typical", "ci_lo"] <= t.loc["typical", "background_mean"]
+    assert t.loc["typical", "background_mean"] <= t.loc["typical", "ci_hi"]
+    assert t.loc["moved", "ci_hi"] < t.loc["moved", "background_mean"]
+
+
+def test_shifting_the_whole_background_leaves_the_selectivity_test_alone(tmp_path, monkeypatch):
+    """``p_vs_background`` is about a set, not about where the transcriptome sits.
+
+    That is the property E.3 leans on: displacing every gene by the same amount moves
+    the background with the sets, so a typical set stays typical.
+    """
+    stat, net = _planted_ranking()
+    stat = stat - 0.5  # shift the whole background, sets included
+    monkeypatch.setattr(enrichment_mod, "load_net", lambda *_a, **_k: net)
+    monkeypatch.setattr(enrichment_mod, "check_coverage", lambda *_a, **_k: (1.0, 80, 80))
+
+    t = run_set_mean(stat, tmp_path, "hallmark", times=2000, n_boot=500).table.set_index("source")
+    assert t.loc["typical", "padj_vs_background"] > 0.05
+    assert t.loc["moved", "padj_vs_background"] < 0.01
+
+
+def test_a_set_displaced_only_by_its_composition_fails_the_matched_null(tmp_path, monkeypatch):
+    """The confound the matched null exists for, planted deliberately.
+
+    ``stat`` here is a deterministic function of the baseline and nothing else, and
+    the set is built from the genes with the largest baseline. Against the whole
+    background it looks strongly displaced; against genes of its own baseline it is
+    exactly typical, which is the correct reading.
+    """
+    rng = np.random.default_rng(3)
+    n = 600
+    genes = np.array([f"G{i:04d}" for i in range(n)])
+    baseline = rng.uniform(size=n)
+    values = -baseline + rng.normal(scale=0.01, size=n)
+    top = np.argsort(baseline)[-60:]
+    net = pd.DataFrame({"source": ["well_predicted"] * 60, "target": list(genes[top])})
+    stat = pd.Series(values, index=genes)
+
+    monkeypatch.setattr(enrichment_mod, "load_net", lambda *_a, **_k: net)
+    monkeypatch.setattr(enrichment_mod, "check_coverage", lambda *_a, **_k: (1.0, 60, 60))
+    res = run_set_mean(
+        stat,
+        tmp_path,
+        "hallmark",
+        times=2000,
+        n_boot=500,
+        baseline=pd.Series(baseline, index=genes),
+        baseline_bins=10,
+    )
+    row = res.table.iloc[0]
+    assert row["padj_vs_background"] < 0.01
+    assert row["padj_vs_matched"] > 0.05
+    # The matched null centres where the set's composition puts it, not on the
+    # background mean, which is the number that makes the column readable.
+    assert row["expected_matched"] == pytest.approx(row["mean_delta"], abs=0.02)
+    assert res.meta()["baseline_matched_null_bins"] == 10
+
+
+def test_the_matched_columns_stay_nan_when_no_baseline_is_given(tmp_path, monkeypatch):
+    stat, net = _planted_ranking()
+    monkeypatch.setattr(enrichment_mod, "load_net", lambda *_a, **_k: net)
+    monkeypatch.setattr(enrichment_mod, "check_coverage", lambda *_a, **_k: (1.0, 80, 80))
+
+    t = run_set_mean(stat, tmp_path, "hallmark", times=500, n_boot=200).table
+    assert t["expected_matched"].isna().all()
+    assert t["p_vs_matched"].isna().all()
+    assert t["padj_vs_matched"].isna().all()
+    # Only the matched columns: the rest of the row still has to be usable.
+    assert np.isfinite(t[["mean_delta", "ci_lo", "ci_hi", "p_vs_background"]]).all().all()
+
+
+def test_the_provenance_names_no_bins_when_the_matched_null_could_not_run(tmp_path, monkeypatch):
+    """A baseline that does not cover the ranking leaves the matched columns NaN.
+
+    The bins have to be reported from the strata that were actually built, or the
+    provenance names a null that never ran.
+    """
+    stat, net = _planted_ranking()
+    monkeypatch.setattr(enrichment_mod, "load_net", lambda *_a, **_k: net)
+    monkeypatch.setattr(enrichment_mod, "check_coverage", lambda *_a, **_k: (1.0, 80, 80))
+
+    partial = pd.Series(1.0, index=stat.index[:-1])  # one gene short of the ranking
+    res = run_set_mean(
+        stat, tmp_path, "hallmark", times=200, n_boot=100, baseline=partial, baseline_bins=20
+    )
+    assert res.table["p_vs_matched"].isna().all()
+    assert res.baseline_bins == 0
+    assert res.meta()["baseline_matched_null_bins"] == 0
+
+    covering = pd.Series(np.arange(len(stat), dtype=float), index=stat.index)
+    ran = run_set_mean(
+        stat, tmp_path, "hallmark", times=200, n_boot=100, baseline=covering, baseline_bins=20
+    )
+    assert ran.table["p_vs_matched"].notna().all()
+    assert ran.meta()["baseline_matched_null_bins"] == 20
+
+
+def test_a_set_with_no_member_in_the_background_is_never_scored():
+    """``min_n`` is floored at 1. A set present only by name has nothing to average,
+    and admitting it would divide by zero in the permutation null."""
+    net = pd.DataFrame({"source": ["absent", "present"], "target": ["NOPE", "G0001"]})
+    sets = enrichment_mod.set_members(np.array(["G0001", "G0002"]), net, min_n=0)
+    assert set(sets) == {"present"}
+
+
+def test_an_unresolvable_set_mean_p_value_never_becomes_an_fdr_of_zero(tmp_path, monkeypatch):
+    stat, net = _planted_ranking()
+    monkeypatch.setattr(enrichment_mod, "load_net", lambda *_a, **_k: net)
+    monkeypatch.setattr(enrichment_mod, "check_coverage", lambda *_a, **_k: (1.0, 80, 80))
+
+    t = run_set_mean(stat, tmp_path, "hallmark", times=500, n_boot=200).table
+    assert (t["p_vs_background"] == 0).any()  # the planted set is unreachable at 500 draws
+    assert (t["padj_vs_background"] > 0).all()
+
+
+def test_the_bootstrap_interval_brackets_the_mean_it_is_drawn_for(tmp_path, monkeypatch):
+    stat, net = _planted_ranking()
+    monkeypatch.setattr(enrichment_mod, "load_net", lambda *_a, **_k: net)
+    monkeypatch.setattr(enrichment_mod, "check_coverage", lambda *_a, **_k: (1.0, 80, 80))
+
+    t = run_set_mean(stat, tmp_path, "hallmark", times=500, n_boot=2000, ci=0.95).table
+    assert (t["ci_lo"] <= t["mean_delta"]).all()
+    assert (t["mean_delta"] <= t["ci_hi"]).all()
+    # A wider interval covers more, so it cannot be narrower than the 95% one.
+    wide = run_set_mean(stat, tmp_path, "hallmark", times=500, n_boot=2000, ci=0.99).table
+    assert ((wide["ci_hi"] - wide["ci_lo"]) >= (t["ci_hi"] - t["ci_lo"]) - 1e-12).all()
+
+
+def test_the_set_mean_is_reproducible_at_a_fixed_seed(tmp_path, monkeypatch):
+    stat, net = _planted_ranking()
+    monkeypatch.setattr(enrichment_mod, "load_net", lambda *_a, **_k: net)
+    monkeypatch.setattr(enrichment_mod, "check_coverage", lambda *_a, **_k: (1.0, 80, 80))
+
+    kw = dict(times=500, n_boot=200, seed=7)
+    a = run_set_mean(stat, tmp_path, "hallmark", **kw).table
+    b = run_set_mean(stat, tmp_path, "hallmark", **kw).table
+    pd.testing.assert_frame_equal(a, b)
