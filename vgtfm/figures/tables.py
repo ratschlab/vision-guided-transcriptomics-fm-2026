@@ -17,6 +17,7 @@ import pandas as pd
 
 from ..data.tables import patient_key
 from ..evaluate.reporting import TISSUE_BALANCED
+from ..models.corrected import parse as parse_correction
 
 #: Display names, in the order the paper lists them.
 MODEL_LABELS = {
@@ -65,6 +66,21 @@ def tex_escape(text) -> str:
     for char in ("_", "%", "#"):
         s = s.replace(char, "\\" + char)
     return s
+
+
+#: Display name of each batch correction. The arms are the product of the corrections
+#: and the inner models, so their labels are composed rather than enumerated.
+CORRECTION_LABELS = {"harmony": "Harmony", "combat": "ComBat"}
+
+
+def model_label(name) -> str:
+    """The paper's name for a model, escaped so it can go straight into a cell."""
+    spec = parse_correction(str(name))
+    if spec is None:
+        return MODEL_LABELS.get(name, tex_escape(name))
+    method, inner = spec
+    correction = CORRECTION_LABELS.get(method, tex_escape(method))
+    return f"{MODEL_LABELS.get(inner, tex_escape(inner))}, {correction}-corrected"
 
 
 def _fmt(value: float, lo=None, hi=None, digits: int = 3) -> str:
@@ -261,7 +277,7 @@ def annotation_table(
         scores = folds["f1_score"]
         row = {
             "model": model,
-            "label": MODEL_LABELS.get(model, model),
+            "label": model_label(model),
             "macro_f1": float(g["f1_score"].mean()),
             "sd_over_seeds": float(g["f1_score"].std(ddof=0)) if len(g) > 1 else np.nan,
             "n_seeds": int(len(g)),
@@ -702,11 +718,15 @@ def delta_table(
     level: str = "cross_donor",
     stem: str | None = None,
 ):
-    """Paired model-minus-PCA deltas with donor-level intervals.
+    """Paired model-minus-reference deltas with donor-level intervals.
 
     The comparison this cohort size supports: a delta whose interval excludes zero
-    is a real difference, whereas two absolute scores with overlapping intervals
-    are not evidence of one.
+    is a real difference, whereas two absolute scores with overlapping intervals are
+    not evidence of one.
+
+    A batch-corrected arm is measured against its own corrected baseline rather than
+    against ``pca`` (:func:`vgtfm.evaluate.run_eval._reference_model`), so the
+    reference is carried per row and named wherever a run holds more than one.
     """
     if deltas.empty:
         return deltas
@@ -725,17 +745,27 @@ def delta_table(
     # Constant across seeds — the folds do not change — so max is just "the value".
     if "n_donors" in view.columns:
         agg["n_donors"] = ("n_donors", "max")
-    df = view.groupby(["model", "scope"]).agg(**agg).reset_index()
+    keys = ["model", "scope"] + (["reference"] if "reference" in view.columns else [])
+    df = view.groupby(keys).agg(**agg).reset_index()
 
+    # One reference for the whole table is the ordinary case and it goes in the
+    # column head; with more than one, every row says which it was measured against.
+    references = sorted(set(df["reference"])) if "reference" in df.columns else []
+    shared = f" vs {model_label(references[0])}" if len(references) == 1 else ""
     lines = [
         r"\begin{tabular}{llccr}",
         r"\toprule",
-        r"Model & Scope & $\Delta$ macro-F1 vs PCA & 95\% CI & $n$ \\",
+        rf"Model & Scope & $\Delta$ macro-F1{shared} & 95\% CI & $n$ \\",
         r"\midrule",
     ]
     for r in df.itertuples():
+        label = model_label(r.model)
+        if len(references) > 1:
+            # The reference's config key, not its display name: it is short, and it
+            # is what the `reference` column of `deltas.csv` can be looked up by.
+            label += rf" \tiny{{(vs {tex_escape(r.reference)})}}"
         lines.append(
-            f"{MODEL_LABELS.get(r.model, tex_escape(r.model))} & {tex_escape(r.scope)} "
+            f"{label} & {tex_escape(r.scope)} "
             f"& {r.delta:+.3f} & [{r.ci_lo:+.3f}, {r.ci_hi:+.3f}] & "
             f"{_donors(getattr(r, 'n_donors', np.nan))} \\\\"
         )
@@ -916,7 +946,7 @@ def per_organ_table(
 
     rows = []
     for model, g in view.groupby("model"):
-        row = {"model": model, "label": MODEL_LABELS.get(model, model)}
+        row = {"model": model, "label": model_label(model)}
         for organ in organs:
             s = g[g.scope == organ]["f1_score"]
             lo, hi = ci_for(model, organ)

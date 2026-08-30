@@ -32,6 +32,7 @@ from ..config import headline_seed
 from ..evaluate.reporting import TISSUE_BALANCED
 from ..plotting import (
     MODEL_COLORS,
+    RASTER_MIN_POINTS,
     model_color,
     save,
     scatter_categorical_2d,
@@ -235,11 +236,16 @@ def run(cfg) -> None:
         made.append("fig_patch_shuffle_deltas")
 
     if not per_gene.empty:
-        _fig_r2_scatter(per_gene, out)
+        levels = _r2_levels(per_gene, cfg.biosignal.per_gene_r2_levels)
+        _fig_r2_scatter(per_gene, out, levels)
         made.append("fig_per_gene_r2")
         if "r2_pca_control" in per_gene:
-            _fig_r2_vs_control(per_gene, out)
+            _fig_r2_vs_control(per_gene, out, levels)
             made.append("fig_per_gene_r2_vs_control")
+        for gene_set, level, table in _setmean_sources(bio_dir, cfg, notes):
+            stem = f"fig_setmean_{gene_set}_{level}"
+            _fig_setmean(table, out, stem, fdr=cfg.biosignal.fdr)
+            made.append(stem)
 
     if not integration.empty:
         # One table per scope the stage scored: the pooled cohort view first, then
@@ -415,7 +421,10 @@ def _fig_annotation(table: pd.DataFrame, results: pd.DataFrame, out, protocol: s
     ax.set_xticks(x)
     ax.set_xticklabels(
         [
-            tbl.MODEL_LABELS.get(m, m).replace("\\&", "&").replace(r"$\rightarrow$", "→")
+            tbl.model_label(m)
+            .replace("\\&", "&")
+            .replace("\\_", "_")
+            .replace(r"$\rightarrow$", "→")
             for m in models
         ],
         fontsize=8,
@@ -572,34 +581,33 @@ def _fig_shuffle_deltas(delta: pd.DataFrame, out):
     save(fig, out / "fig_patch_shuffle_deltas")
 
 
-def _fig_r2_scatter(per_gene: pd.DataFrame, out):
-    """Frozen vs refined, with the capacity control drawn alongside.
+def _r2_levels(per_gene: pd.DataFrame, wanted) -> list[str]:
+    """The fold levels a per-gene scatter draws, in the order the config names them.
 
-    The control is ``PCA_k(frozen)`` at the refined width: no morphology, no
-    autoencoder, only the same number of directions. Without it on the axes a
-    reader cannot tell a gain in information from a gain in conditioning, and on
-    this cohort the two are not the same size.
+    A level the stage did not score is dropped rather than refused: only TuPro carries
+    replicate and region ids, so a lung or kidney scope legitimately has fewer levels
+    than the manuscript's skin figure.
+    """
+    scored = list(dict.fromkeys(per_gene["level"]))
+    return [lv for lv in wanted if lv in scored] if wanted else scored
+
+
+def _fig_r2_scatter(per_gene: pd.DataFrame, out, levels: list[str]):
+    """Frozen versus refined per-gene R^2, one panel per fold level.
+
+    The capacity control is deliberately not on these axes. It belongs on
+    :func:`_fig_r2_vs_control`, where both series are at the refined width and the
+    diagonal is the claim; drawn here it shares an axis with the frozen embedding and
+    shows only that the two move together.
     """
     import matplotlib.pyplot as plt
 
-    levels = list(dict.fromkeys(per_gene["level"]))
-    has_ctl = "r2_pca_control" in per_gene
     fig, axes = plt.subplots(1, len(levels), figsize=(4.2 * len(levels), 4.0), squeeze=False)
     for ax, level in zip(axes[0], levels):
         sub = per_gene[per_gene.level == level].dropna(subset=["r2_frozen", "r2_refined"])
-        cols = ["r2_frozen", "r2_refined"]
-        if has_ctl:
-            ctl = sub.dropna(subset=["r2_pca_control"])
-            ax.scatter(
-                ctl["r2_frozen"],
-                ctl["r2_pca_control"],
-                s=3,
-                alpha=0.22,
-                color="#d95f02",
-                linewidths=0,
-                label="PCA control (no vision)",
-            )
-            cols.append("r2_pca_control")
+        # One marker per gene at ~16k genes: a vector scatter is slow to typeset and
+        # megabytes wide, for points no reader can resolve individually. Axes, ticks
+        # and labels stay vector.
         ax.scatter(
             sub["r2_frozen"],
             sub["r2_refined"],
@@ -607,27 +615,26 @@ def _fig_r2_scatter(per_gene: pd.DataFrame, out):
             alpha=0.22,
             color="#1f77b4",
             linewidths=0,
-            label="refined",
+            rasterized=len(sub) >= RASTER_MIN_POINTS,
         )
-        lim = [min(sub[c].min() for c in cols), max(sub[c].max() for c in cols)]
+        lim = [
+            min(sub["r2_frozen"].min(), sub["r2_refined"].min()),
+            max(sub["r2_frozen"].max(), sub["r2_refined"].max()),
+        ]
         ax.plot(lim, lim, "k--", lw=0.8)
         ax.axhline(0, color="#999", lw=0.6)
         ax.axvline(0, color="#999", lw=0.6)
-        title = (
+        ax.set_title(
             f"{level.replace('_', '-')}\n"
-            f"refined $\\Delta R^2$ = {float(sub['delta_r2'].mean()):+.3f}"
+            f"refined $\\Delta R^2$ = {float(sub['delta_r2'].mean()):+.3f}",
+            fontsize=9,
         )
-        if has_ctl:
-            title += f", control {float(sub['delta_r2_pca_control'].mean()):+.3f}"
-        ax.set_title(title, fontsize=9)
         ax.set_xlabel("$R^2$ frozen")
-        ax.set_ylabel("$R^2$ refined / control")
-    if has_ctl:
-        axes[0][0].legend(frameon=False, fontsize=7, markerscale=3, loc="upper left")
+        ax.set_ylabel("$R^2$ refined")
     save(fig, out / "fig_per_gene_r2")
 
 
-def _fig_r2_vs_control(per_gene: pd.DataFrame, out):
+def _fig_r2_vs_control(per_gene: pd.DataFrame, out, levels: list[str]):
     """The refinement against its own capacity control, head to head.
 
     One axis each, so the diagonal is the whole claim: a point below it is a gene
@@ -637,14 +644,19 @@ def _fig_r2_vs_control(per_gene: pd.DataFrame, out):
     """
     import matplotlib.pyplot as plt
 
-    levels = list(dict.fromkeys(per_gene["level"]))
     fig, axes = plt.subplots(1, len(levels), figsize=(4.2 * len(levels), 4.0), squeeze=False)
     for ax, level in zip(axes[0], levels):
         sub = per_gene[per_gene.level == level].dropna(subset=["r2_refined", "r2_pca_control"])
         if sub.empty:
             continue
         ax.scatter(
-            sub["r2_pca_control"], sub["r2_refined"], s=3, alpha=0.25, color="#1f77b4", linewidths=0
+            sub["r2_pca_control"],
+            sub["r2_refined"],
+            s=3,
+            alpha=0.25,
+            color="#1f77b4",
+            linewidths=0,
+            rasterized=len(sub) >= RASTER_MIN_POINTS,
         )
         lim = [
             min(sub["r2_pca_control"].min(), sub["r2_refined"].min()),
@@ -664,6 +676,181 @@ def _fig_r2_vs_control(per_gene: pd.DataFrame, out):
         ax.set_xlabel("$R^2$ PCA control (no vision)")
         ax.set_ylabel("$R^2$ refined")
     save(fig, out / "fig_per_gene_r2_vs_control")
+
+
+#: The contrast the dot plot is drawn for. ``guided_vs_frozen`` is the difference the
+#: paper reports; the other two live in the same CSV and are read from it directly.
+SETMEAN_CONTRAST = "guided_vs_frozen"
+
+#: Tokens ``str.title()`` gets wrong in MSigDB's set names. Enumerated rather than
+#: inferred: "Tnfa Signaling Via Nfkb" on a paper figure is worse than no title-casing
+#: at all, and the collection is fifty fixed names, not an open vocabulary.
+_ACRONYMS = frozenset(
+    """TNFA NFKB IL6 IL2 JAK STAT3 STAT5 MYC E2F G2M P53 UV DNA KRAS PI3K AKT MTOR
+    MTORC1 TGF ROS EMT WNT V1 V2 DN UP""".split()
+)
+
+
+def _setmean_sources(bio_dir, cfg, notes: list) -> list[tuple[str, str, pd.DataFrame]]:
+    """Every ``setmean_<gene_set>_<level>.csv`` this run's biosignal scope holds.
+
+    Absent until `biosignal` has run, which is a "not yet" rather than a defect. A
+    file that exists but carries no row for :data:`SETMEAN_CONTRAST` is the defect
+    case and stops the run.
+    """
+    if not bio_dir.exists():
+        return []
+    found = []
+    for gene_set in cfg.biosignal.gene_sets:
+        paths = sorted(bio_dir.glob(f"setmean_{gene_set}_*.csv"))
+        if not paths:
+            notes.append(
+                pending(
+                    f"the ranked {gene_set} dot plot",
+                    f"`biosignal` has not written setmean_{gene_set}_<level>.csv for this scope",
+                )
+            )
+            continue
+        for path in paths:
+            level = path.stem[len(f"setmean_{gene_set}_") :]
+            df = pd.read_csv(path)
+            sub = df[df["contrast"].astype(str) == SETMEAN_CONTRAST]
+            if sub.empty:
+                refuse(
+                    f"the ranked {gene_set} dot plot for '{level}'",
+                    f"{path} carries no '{SETMEAN_CONTRAST}' rows, only "
+                    f"{sorted(df['contrast'].astype(str).unique())}",
+                )
+            found.append(
+                (
+                    gene_set,
+                    level,
+                    sub.sort_values("mean_delta", ascending=False, kind="stable").reset_index(
+                        drop=True
+                    ),
+                )
+            )
+    return found
+
+
+def _setmean_label(source: str, *, star: bool) -> str:
+    words = str(source).replace("HALLMARK_", "").split("_")
+    text = " ".join(w.upper() if w.upper() in _ACRONYMS else w.title() for w in words)
+    return f"{text} *" if star else text
+
+
+def _setmean_counts(sub: pd.DataFrame, fdr: float) -> dict:
+    """What the figure's caption has to state, so the two cannot disagree."""
+    bg = float(sub["background_mean"].iloc[0])
+    out = {
+        "n_sets": int(len(sub)),
+        "background_mean": bg,
+        "n_below": int((sub["mean_delta"] < bg).sum()),
+    }
+    for key in ("background", "matched"):
+        col = f"padj_vs_{key}"
+        out[f"n_sig_vs_{key}"] = int((sub[col] < fdr).sum()) if col in sub else 0
+    return out
+
+
+def _fig_setmean(sub: pd.DataFrame, out, stem: str, *, fdr: float) -> dict:
+    """Every set of one collection ranked by its mean delta-R^2, against two references.
+
+    A normalised enrichment score cannot say how far a pathway moved, so a table of
+    fifty of them cannot answer the question §4.3 leaves: did any pathway move
+    differently from the rest of the transcriptome?
+
+    * the dashed line is the transcriptome-wide mean delta-R^2. The bars around each
+      point are a bootstrap over member genes — a spread, not a test — so crossing the
+      line is not itself a verdict;
+    * the open grey marker is ``expected_matched``, what a random set with the same
+      baseline predictivity profile did. A set sitting on its own open marker moved
+      because it is made of well-predicted genes, not because of what it encodes;
+    * the star is the only inferential mark: ``padj_vs_matched`` below *fdr*.
+
+    No title — the caption carries the run, the level and the counts, which are
+    returned and printed rather than drawn so the figure and the sentence about it
+    come from the same numbers.
+    """
+    import matplotlib.pyplot as plt
+
+    counts = _setmean_counts(sub, fdr)
+    bg = counts["background_mean"]
+    y = range(len(sub))
+
+    fig, ax = plt.subplots(figsize=(5.6, 0.135 * len(sub) + 1.7))
+    ax.axvline(0.0, color="#333333", lw=0.7, zorder=1)
+    ax.axvline(
+        bg, color="#d62728", lw=1.1, ls="--", zorder=2, label=f"transcriptome-wide mean ({bg:+.3f})"
+    )
+
+    matched = "expected_matched" in sub and sub["expected_matched"].notna().any()
+    if matched:
+        ax.scatter(
+            sub["expected_matched"],
+            y,
+            s=26,
+            facecolors="none",
+            edgecolors="#7f7f7f",
+            linewidths=0.8,
+            zorder=3,
+            label="baseline-matched expectation",
+        )
+
+    # One call for the bars: fifty per-row errorbars are fifty legend-eligible artists
+    # and a slower typeset, for an identical picture.
+    ax.errorbar(
+        sub["mean_delta"],
+        y,
+        xerr=[sub["mean_delta"] - sub["ci_lo"], sub["ci_hi"] - sub["mean_delta"]],
+        fmt="o",
+        ms=3.4,
+        lw=0.9,
+        color="#1f77b4",
+        ecolor="#1f77b4",
+        capsize=1.6,
+        zorder=4,
+        label="mean $\\Delta R^2$ (95% bootstrap CI)",
+    )
+
+    survives = (
+        sub["padj_vs_matched"] < fdr
+        if "padj_vs_matched" in sub
+        else pd.Series(False, index=sub.index)
+    )
+    ax.set_yticks(list(y))
+    ax.set_yticklabels(
+        [_setmean_label(s, star=bool(k)) for s, k in zip(sub["source"], survives.fillna(False))],
+        fontsize=6,
+    )
+    ax.set_ylim(-0.6, len(sub) - 0.4)
+    ax.set_xlabel("mean $\\Delta R^2$ over member genes")
+    ax.tick_params(axis="y", length=0)
+    for side in ("top", "right", "left"):
+        ax.spines[side].set_visible(False)
+    ax.grid(axis="x", lw=0.4, alpha=0.35)
+    ax.set_axisbelow(True)
+    # Above the axes, not inside them: at fifty rows every interior corner is occupied,
+    # and a legend over the bottom rows hides the sets nearest the reference line.
+    ax.legend(
+        frameon=False,
+        fontsize=6.5,
+        handletextpad=0.5,
+        loc="lower left",
+        bbox_to_anchor=(0.0, 1.005),
+        ncol=2 if matched else 1,
+        columnspacing=1.2,
+    )
+    fig.tight_layout()
+    save(fig, out / stem)
+
+    print(
+        f"    {stem}: {counts['n_sets']} sets, background mean {bg:+.4f}, "
+        f"{counts['n_below']} below it; FDR<{fdr}: "
+        f"{counts['n_sig_vs_background']} vs that mean, "
+        f"{counts['n_sig_vs_matched']} vs a baseline-matched null"
+    )
+    return counts
 
 
 def _fig_umaps(cfg, out, made: list[str], notes: list[str]) -> None:

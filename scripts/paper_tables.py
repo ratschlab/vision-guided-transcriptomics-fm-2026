@@ -28,7 +28,6 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from vgtfm.figures.tables import (  # noqa: E402
-    INTEGRATION_LABELS,
     INTEGRATION_METRICS,
     MODEL_LABELS,
     integration_over_seeds,
@@ -518,242 +517,6 @@ def effective_rank_table(runs: list[Run], *, digits: int, controls: bool, label:
     )
 
 
-#: Appended to every integration caption. `integrate` scores every seed `eval`
-#: scores, so these rows are means over the same replicates the annotation tables
-#: average, with the same seed-pooled brackets — the two are one experiment and can
-#: be read against each other. Saying so is worth a sentence: for one release the
-#: stage scored a single fit while Table 1 averaged three, and the resulting
-#: few-thousandths gap read as a discrepancy in the results.
-SEED_NOTE = (
-    r" Both the probe columns and the deltas are averaged over the same "
-    r"model seeds as Table~\ref{tab:main}, with intervals pooled over "
-    r"their bootstrap replicates, so the uncorrected row is that table's "
-    r"PCA row."
-)
-
-
-def _deltas_over_seeds(deltas: pd.DataFrame, level: str) -> pd.DataFrame:
-    """``integration_deltas.csv`` at one fold level, one row per (method, scope).
-
-    ``integrate`` writes one delta per (method, seed, level, scope) so that a batch
-    correction is measured on every fit the annotation tables average over. The
-    manuscript reports a method, so the seeds are collapsed the way ``eval``'s are:
-    the mean of the point estimates, and the *pooled* interval and p-value where the
-    stage wrote them -- the percentile of the seeds' replicate draws taken together,
-    which covers training variability as well as donor sampling. A single-seed run
-    and a run predating those columns both fall back to what they have.
-    """
-    d = deltas[deltas.level == level]
-    if d.empty or "seed" not in d.columns:
-        return d
-    lo, hi, pv = ("ci_lo_pooled", "ci_hi_pooled", "p_two_sided_pooled")
-    have = all(c in d.columns and d[c].notna().any() for c in (lo, hi, pv))
-    src = d.assign(ci_lo=d[lo], ci_hi=d[hi], p_two_sided=d[pv]) if have else d
-    keys = ["method", "scope"] if "scope" in d.columns else ["method"]
-    return (
-        src.groupby(keys, sort=False)
-        .agg(
-            delta_f1=("delta_f1", "mean"),
-            ci_lo=("ci_lo", "mean"),
-            ci_hi=("ci_hi", "mean"),
-            p_two_sided=("p_two_sided", "mean"),
-            n_donors=("n_donors", "max"),
-            n_seeds=("seed", "nunique"),
-        )
-        .reset_index()
-    )
-
-
-def integration_table(
-    runs: list[Run], *, level: str, digits: int, label: str, scope: str = "global"
-) -> tuple[str, int]:
-    """Batch correction on every backbone, one block per substrate.
-
-    Read across a row rather than down a column. iLISI and kBET say how well the
-    batches mix, cLISI whether the label structure survived the mixing, and macro-F1
-    whether a slide from a donor the probe never saw can still be annotated. The
-    point of putting all four in one table is that they disagree: the methods that
-    move the batch columns furthest leave the last one where they found it. That
-    disagreement is also why the stage computes no composite score -- averaging the
-    first column into the last would report a moderate improvement for a method that
-    improved nothing anyone would deploy.
-
-    Returns the table and the donor count its intervals are built over, for the
-    caption the caller prints.
-    """
-    order = {s: i for i, s in enumerate(BACKBONE_ORDER)}
-    blocks = sorted(runs, key=lambda r: order.get(r.substrate, 99))
-    n_cols = 1 + len(INTEGRATION_METRICS) + 3
-    body: list[str] = []
-    donors: set[int] = set()
-
-    for i, run in enumerate(blocks):
-        wide = integration_over_seeds(run.csv("integration", "integration.csv")).set_index("method")
-        deltas = _deltas_over_seeds(run.csv("integration", "integration_deltas.csv"), level)
-        key = f"f1/{scope}/{level}"
-        if key not in wide.columns:
-            raise SystemExit(
-                f"{run.run_name}: integration.csv carries no '{key}' column -- rerun `integrate`"
-            )
-        if "scope" in deltas.columns:
-            deltas = deltas[deltas.scope == scope]
-        deltas = deltas.set_index("method")
-        if i:
-            body.append(r"\midrule")
-        body.append(rf"\multicolumn{{{n_cols}}}{{l}}{{\emph{{{tex_escape(run.label)}}}}}\\")
-
-        for method, name in INTEGRATION_LABELS.items():
-            if method not in wide.index:
-                continue
-            row = wide.loc[method]
-            cells = [_num(row.get(m), digits) for m, _head in INTEGRATION_METRICS]
-            cells.append(
-                _cell(row.get(key), row.get(f"{key}_lo"), row.get(f"{key}_hi"), digits=digits)
-            )
-            if method in deltas.index:
-                d = deltas.loc[method]
-                cells.append(_signed(d.delta_f1, d.ci_lo, d.ci_hi, digits=digits))
-                cells.append(_p_cell(d.p_two_sided))
-                donors.add(int(d.n_donors))
-            else:
-                # The uncorrected row is the reference, so it has no delta; a
-                # graph-only method has no probe to difference. Both are blank, and
-                # the caption says which is which.
-                cells += ["--", "--"]
-            body.append(rf"\quad {tex_escape(name)} & " + " & ".join(cells) + r" \\")
-
-    if len(donors) > 1:
-        raise SystemExit(
-            f"the {level} probe spans different donor counts across "
-            f"runs ({sorted(donors)}); the runs are not on one cohort"
-        )
-    n_donors = donors.pop() if donors else 0
-
-    header = [
-        "Method & "
-        + " & ".join(h for _key, h in INTEGRATION_METRICS)
-        + r" & Macro-F1 & $\Delta$F1 & $p$ \\"
-    ]
-    where = "pooled over every organ" if scope == "global" else f"on {tissue_label(scope)} alone"
-    caption = (
-        r"Batch correction applied to the frozen embeddings, scored at the "
-        rf"{tex_escape(level.replace('_', '-'))} level, {where}. iLISI and kBET "
-        r"measure "
-        r"batch mixing, cLISI whether the biological label structure survived "
-        r"it, and macro-F1 whether the corrected embedding still supports "
-        r"held-out-donor annotation. $\Delta$F1 is paired against the "
-        r"uncorrected embedding on a shared donor resample; read it rather "
-        r"than the difference of two absolute columns, which at this cohort "
-        r"size overlap across every method."
-    )
-    if scope != "global":
-        caption += (
-            r" The probe columns are this organ only; iLISI, kBET and cLISI "
-            r"are cohort-wide, since the scIB panel scores one stratified "
-            r"sample of the whole annotated cohort batched by slide."
-        )
-    note = (
-        rf"Intervals are donor-level bootstraps over {n_donors} donors. The "
-        r"uncorrected row is the reference the deltas are taken against, so it "
-        r"carries none. BBKNN corrects the neighbour graph rather than the "
-        r"embedding: there is no corrected matrix for the probe to read, and no "
-        r"deployable gene representation at the end of it. Its empty cells are "
-        r"the result, not a gap in it." + SEED_NOTE
-    )
-    return table_env(
-        caption=caption,
-        label=label,
-        colspec="l" + "r" * (n_cols - 1),
-        header=header,
-        body=body,
-        note=note,
-    ), n_donors
-
-
-def integration_by_organ_table(runs: list[Run], *, level: str, digits: int, label: str) -> str:
-    """Appendix -- what each correction costs or buys, one column per organ.
-
-    The companion to :func:`integration_table`, which reports the pooled cohort. The
-    organs differ enough that a null in the pooled column can be two real effects
-    cancelling; this table is where that shows.
-
-    Only the paired delta is reported. It is the statistic that survives the split:
-    both conditions are scored on the same resampled donors, so a two-donor organ
-    still yields a usable interval where its absolute score does not. The absolute
-    scores live in the per-run tables.
-
-    Neither Uncorrected (the reference) nor BBKNN (no embedding to probe) has a
-    delta, so neither gets a row.
-    """
-    order = {s: i for i, s in enumerate(BACKBONE_ORDER)}
-    blocks = sorted(runs, key=lambda r: order.get(r.substrate, 99))
-
-    frames = {}
-    for run in blocks:
-        d = run.csv("integration", "integration_deltas.csv")
-        if "scope" not in d.columns:
-            raise SystemExit(
-                f"{run.run_name}: integration_deltas.csv has no `scope` "
-                "column -- rerun `integrate` to score every organ"
-            )
-        frames[run.run_name] = _deltas_over_seeds(d, level)
-
-    any_frame = next(iter(frames.values()))
-    donors = any_frame.groupby("scope")["n_donors"].max().to_dict()
-    organs = sorted((s for s in donors if s != "global"), key=lambda o: donors[o])
-    if not organs:
-        raise SystemExit(f"no tissue scopes at the {level} level")
-
-    heads = [rf"{tissue_label(o)} (${donors[o]}$)" for o in organs]
-    if "global" in donors:
-        heads.append(rf"Pooled (${donors['global']}$)")
-    ncols = len(heads) + 1
-
-    body: list[str] = []
-    for i, run in enumerate(blocks):
-        d = frames[run.run_name].set_index(["method", "scope"])
-        if i:
-            body.append(r"\midrule")
-        body.append(rf"\multicolumn{{{ncols}}}{{l}}{{\emph{{{tex_escape(run.label)}}}}}\\")
-        for method, name in INTEGRATION_LABELS.items():
-            cells = []
-            for scope in organs + (["global"] if "global" in donors else []):
-                if (method, scope) not in d.index:
-                    cells.append("--")
-                    continue
-                r = d.loc[(method, scope)]
-                cells.append(_signed(r.delta_f1, r.ci_lo, r.ci_hi, digits=digits))
-            # A method with no delta anywhere is the reference or a graph-only
-            # method; the caption says which, and an all-blank row says nothing.
-            if set(cells) == {"--"}:
-                continue
-            body.append(rf"\quad {tex_escape(name)} & " + " & ".join(cells) + r" \\")
-
-    caption = (
-        r"Change in held-out-donor macro-F1 from each batch correction, "
-        r"paired against the uncorrected embedding on a shared donor "
-        r"resample, reported per organ. Donor counts are in the column heads: "
-        r"the two-donor organs admit only three distinct resamples, so read "
-        r"their intervals as granular rather than tight. The pooled column is "
-        r"the macro over (tissue, class) cells from every organ, whose "
-        r"bootstrap resamples donors without regard to organ."
-    )
-    note = (
-        r"Uncorrected is the reference every delta is measured against, and "
-        r"BBKNN corrects the neighbour graph rather than the embedding, so "
-        r"neither has a row here. Absolute scores and the batch-mixing panel are "
-        r"in Table~\ref{tab:integration}."
-    )
-    return table_env(
-        caption=caption,
-        label=label,
-        colspec="l" + "r" * (ncols - 1),
-        header=["Method & " + " & ".join(heads) + r" \\"],
-        body=body,
-        note=note,
-    )
-
-
 def _organ_scopes(wide, level: str) -> list[tuple[str, int]]:
     """``(organ, n_donors)`` for every tissue scope the probe scored at *level*.
 
@@ -777,94 +540,150 @@ def _organ_scopes(wide, level: str) -> list[tuple[str, int]]:
     return sorted(found.items(), key=lambda kv: kv[1])
 
 
-def integration_organ_scores_table(runs: list[Run], *, level: str, digits: int, label: str) -> str:
-    """Appendix -- batch mixing beside the absolute probe score, one column per organ.
+#: Rows of the batch-correction table, in the order Appendix D.2 names them, as
+#: ``(label, model, integrate method)``. Each correction appears twice: the
+#: corrected embedding probed directly, and the same embedding after
+#: histology-guided learning. A label beginning with ``+`` is the guided member of
+#: the pair and is indented under it.
+#:
+#: A row with no model is a method that yields no corrected gene matrix an encoder
+#: could be fitted on, so it has no guided arm and is read from ``integrate``:
+#: BBKNN corrects a neighbour graph, and scVI is fitted on the raw counts.
+CORRECTION_ROWS = (
+    ("Uncorrected", "pca", None),
+    ("+ guidance", "ae", None),
+    ("Harmony", "harmony_pca", None),
+    ("+ guidance", "harmony_ae", None),
+    ("BBKNN", None, "bbknn"),
+    ("ComBat", "combat_pca", None),
+    ("+ guidance", "combat_ae", None),
+    ("scVI", None, "scvi"),
+)
 
-    :func:`integration_table` answers "does the corrected embedding still support the
-    task" with one cohort-wide F1. This one answers it per organ, which the pooled
-    macro cannot: that column runs over (tissue, class) cells from all three organs
-    at once, so an organ that collapses and an organ that improves land inside the
-    same number.
 
-    Absolute scores here, paired deltas in :func:`integration_by_organ_table`; the
-    two are meant to be read together. At two donors an absolute interval is granular
-    enough that the gap between two methods' point estimates in this table is not on
-    its own evidence that they differ -- that claim needs the paired form.
+def _scib_over_seeds(run: Run) -> pd.DataFrame:
+    """``scib_panel.csv`` keyed by model, averaged over the seeds it scored.
 
-    One asymmetry the caption has to carry: iLISI, kBET and cLISI have no per-organ
-    version. The scIB panel scores a single stratified sample of the whole annotated
-    cohort with the slide as the batch, so every organ column is paired with the same
-    cohort-wide mixing scores.
+    The panel names a row ``"<model> (seed 42)"``. Averaging here keeps these the
+    same statistic :func:`integration_over_seeds` produces for the rows read from
+    ``integrate``, so every row of the table is a method rather than a fit.
+    """
+    panel = run.csv("diagnostics", "scib_panel.csv")
+    panel = panel.assign(
+        model=panel["representation"].str.replace(r" \(seed \d+\)$", "", regex=True)
+    )
+    return panel.groupby("model")[[m for m, _h in INTEGRATION_METRICS]].mean()
+
+
+def correction_table(runs: list[Run], *, protocol: str, level: str, digits: int, label: str) -> str:
+    """Appendix D.2 — batch correction of the gene embedding under guidance.
+
+    Each correction is fitted once over the whole cohort with the slide as the batch
+    covariate, and its output becomes the new frozen input to the guided encoder.
+    Reporting each correction twice — probed directly, then after guidance — makes the
+    effect of guidance the step between two adjacent rows, so it is not confounded
+    with the correction that produced their shared input.
+
+    Every column group describes the row's own representation: how well it mixes the
+    slides, whether the label structure survived, and whether a held-out donor can
+    still be annotated from it. The uncorrected pair is Table 1's PCA and AE rows.
     """
     order = {s: i for i, s in enumerate(BACKBONE_ORDER)}
     blocks = sorted(runs, key=lambda r: order.get(r.substrate, 99))
+    stem = f"table_annotation_by_organ_{protocol}_{level}.csv"
 
-    scored = {}
+    loaded, missing = {}, []
     for run in blocks:
         wide = integration_over_seeds(run.csv("integration", "integration.csv")).set_index("method")
-        organs = _organ_scopes(wide, level)
-        if not organs:
-            raise SystemExit(
-                f"{run.run_name}: integration.csv carries no per-organ "
-                f"'f1/<organ>/{level}' columns -- rerun `integrate` to "
-                "score every organ"
-            )
-        scored[run.run_name] = (wide, organs)
-
-    # Both the organ set and the donor count behind each column have to match across
-    # the blocks, or one table would be stacking three different cohorts.
-    signatures = {tuple(organs) for _wide, organs in scored.values()}
-    if len(signatures) > 1:
+        organ = run.csv("figures", stem).set_index("model")
+        loaded[run.run_name] = (_scib_over_seeds(run), organ, wide, _organ_scopes(wide, level))
+        missing += [
+            f"{run.run_name}: {m}" for _l, m, _x in CORRECTION_ROWS if m and m not in organ.index
+        ]
+    if missing:
         raise SystemExit(
-            f"the {level} probe spans different organs or donor counts "
-            f"across runs ({sorted(signatures)}); the runs are not on "
-            "one cohort"
+            "the guided batch-correction arms were not scored in these runs: "
+            + ", ".join(missing)
+            + "\nadd them to models.names and rerun train + eval; see vgtfm/models/corrected.py"
         )
 
-    organs = next(iter(scored.values()))[1]
+    signatures = {tuple(o) for _s, _o, _w, o in loaded.values()}
+    if len(signatures) > 1:
+        raise SystemExit(
+            f"the {level} probe spans different organs or donor counts across "
+            f"runs ({sorted(signatures)}); the runs are not on one cohort"
+        )
+    organs = next(iter(loaded.values()))[3]
     ncols = 1 + len(INTEGRATION_METRICS) + len(organs)
 
     body: list[str] = []
     for i, run in enumerate(blocks):
-        wide, _organs = scored[run.run_name]
+        scib, organ, wide, _o = loaded[run.run_name]
         if i:
             body.append(r"\midrule")
         body.append(rf"\multicolumn{{{ncols}}}{{l}}{{\emph{{{tex_escape(run.label)}}}}}\\")
-        for method, name in INTEGRATION_LABELS.items():
-            if method not in wide.index:
-                continue
-            row = wide.loc[method]
-            cells = [_num(row.get(m), digits) for m, _head in INTEGRATION_METRICS]
-            for scope, _n in organs:
-                key = f"f1/{scope}/{level}"
-                cells.append(
-                    _cell(row.get(key), row.get(f"{key}_lo"), row.get(f"{key}_hi"), digits=digits)
-                )
-            body.append(rf"\quad {tex_escape(name)} & " + " & ".join(cells) + r" \\")
+
+        for lbl, model, method in CORRECTION_ROWS:
+            if model is None:
+                if method not in wide.index:
+                    continue
+                row = wide.loc[method]
+                cells = [_num(row.get(m), digits) for m, _h in INTEGRATION_METRICS]
+                cells += [
+                    _cell(
+                        row.get(f"f1/{scope}/{level}"),
+                        row.get(f"f1/{scope}/{level}_lo"),
+                        row.get(f"f1/{scope}/{level}_hi"),
+                        digits=digits,
+                    )
+                    for scope, _n in organs
+                ]
+            else:
+                cells = [
+                    _num(scib.loc[model, m] if model in scib.index else np.nan, digits)
+                    for m, _h in INTEGRATION_METRICS
+                ]
+                cells += [
+                    _cell(
+                        organ.loc[model, f"{scope}_macro_f1"],
+                        organ.loc[model, f"{scope}_ci_lo"],
+                        organ.loc[model, f"{scope}_ci_hi"],
+                        digits=digits,
+                    )
+                    for scope, _n in organs
+                ]
+            indent = r"\quad\quad" if lbl.startswith("+") else r"\quad"
+            body.append(f"{indent} {tex_escape(lbl)} & " + " & ".join(cells) + r" \\")
 
     heads = [h for _key, h in INTEGRATION_METRICS] + [
         rf"{tissue_label(scope)} (${n}$)" for scope, n in organs
     ]
     caption = (
-        r"Batch correction applied to the frozen embeddings, scored at the "
-        rf"{tex_escape(level.replace('_', '-'))} level, with the probe reported "
-        r"per organ. iLISI and kBET measure batch mixing, cLISI whether the "
-        r"biological label structure survived it, and each organ column is the "
-        r"held-out-donor macro-F1 on that tissue alone. Donor counts are in the "
-        r"column heads. Read across a row: the methods that move the batch "
-        r"columns furthest are not the ones that move the organ columns."
+        r"Batch correction applied to the gene expression embeddings, which are "
+        r"then used in the histology-guided representation learning as new frozen "
+        r"gene expression embeddings. Each correction is fitted once and globally, "
+        r"including the evaluation data, with the slide as the batch covariate. "
+        r"iLISI and kBET measure batch mixing, cLISI preservation of the biological "
+        rf"label structure, and each organ column is the {tex_escape(level.replace('_', '-'))} "
+        r"macro-F1 on that tissue alone. Each correction is reported twice, before "
+        r"and after guidance, so the step between two adjacent rows is the effect "
+        r"of supervision on a shared input; the uncorrected pair is the setting "
+        r"described in Section~3."
     )
     note = (
-        r"Intervals are donor-level bootstraps within each organ; the two-donor "
-        r"organs admit only three distinct resamples, so read their brackets as "
-        r"granular rather than tight, and take a claim that two methods differ "
-        r"from the paired deltas in Table~\ref{tab:integrationorgans} rather than "
-        r"from a gap between two columns here. iLISI, kBET and cLISI have no "
-        r"per-organ version -- the scIB panel scores one stratified sample of the "
-        r"whole annotated cohort batched by slide -- so those three columns are "
-        r"cohort-wide on every row. BBKNN corrects the neighbour graph rather than "
-        r"the embedding: there is no corrected matrix for the probe to read, and "
-        r"its empty cells are the result, not a gap in it." + SEED_NOTE
+        r"Brackets give the $95\%$ CI from a donor bootstrap within each tissue, and "
+        r"donor counts are in the column heads; the two-donor organs admit only "
+        r"three distinct resamples, so read their brackets as granular rather than "
+        r"tight. Every row is averaged over the same three model seeds as "
+        r"Table~\ref{tab:main}. iLISI, kBET and cLISI have no per-organ version, "
+        r"since the scIB panel scores one stratified sample of the whole annotated "
+        r"cohort batched by slide, but they are measured on each row's own "
+        r"representation, so a guided row reports the mixing of the guided "
+        r"embedding rather than of the corrected one above it. BBKNN corrects the "
+        r"neighbour graph rather than the embedding, so it yields nothing an "
+        r"encoder could be fitted on and no F1 is reported for it; scVI produces an "
+        r"embedding from the raw counts but was not carried through guidance, so "
+        r"both are shown unguided."
     )
     return table_env(
         caption=caption,
@@ -1123,16 +942,10 @@ def main(argv=None) -> int:
     ap.add_argument("--digits", type=int, default=2)
     ap.add_argument("--rank-digits", type=int, default=1)
     ap.add_argument(
-        "--integration-scope",
-        default="global",
-        help="cohort the combined integration table reads its probe "
-        "columns at; a tissue name restricts it to that organ",
-    )
-    ap.add_argument(
         "--integration-digits",
         type=int,
         default=3,
-        help="the integration metrics separate methods in the third "
+        help="the batch-mixing metrics separate methods in the third "
         "decimal, so they are printed wider than the F1 tables",
     )
     ap.add_argument(
@@ -1178,13 +991,6 @@ def main(argv=None) -> int:
         pool_usz=args.pool_usz,
         label="tab:patchshuffle",
     )
-    integration, integration_donors = integration_table(
-        runs,
-        level=args.level,
-        digits=args.integration_digits,
-        scope=args.integration_scope,
-        label="tab:integration",
-    )
     outputs = {
         "table_main_skin.tex": main_tex,
         "table_appendix_all_tissues.tex": appendix_all_tissues_table(
@@ -1198,15 +1004,12 @@ def main(argv=None) -> int:
             runs, digits=args.rank_digits, controls=args.controls, label="tab:effrank"
         ),
         "table_patch_shuffle.tex": shuffle,
-        "table_integration.tex": integration,
-        "table_integration_by_organ.tex": integration_by_organ_table(
-            runs, level=args.level, digits=args.integration_digits, label="tab:integrationorgans"
-        ),
-        "table_integration_organ_scores.tex": integration_organ_scores_table(
+        "table_batch_correction.tex": correction_table(
             runs,
+            protocol=args.protocol,
             level=args.level,
             digits=args.integration_digits,
-            label="tab:integrationorganscores",
+            label="tab:integration",
         ),
     }
 
@@ -1219,7 +1022,6 @@ def main(argv=None) -> int:
         (args.out / name).write_text(header + tex)
         print(f"wrote {args.out / name}")
     print(f"\nskin cohort: n={n_donors} donors")
-    print(f"integration probe: n={integration_donors} donors ({args.integration_scope} scope)")
     if omitted:
         print("classes left out of table_patch_shuffle.tex (--all-classes keeps them):")
         for o in omitted:
