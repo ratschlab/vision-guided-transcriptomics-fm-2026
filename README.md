@@ -117,11 +117,11 @@ raw .h5ad + WSI ──embed──► cached FM embeddings                (option
 | Stage | What it does | Cost |
 | --- | --- | --- |
 | `data` | Materialise the feature cache, describe the cohort, enumerate the folds | ~1 min |
-| `train` | Fit each representation on the unannotated cohorts, embed all spots | minutes–hours |
+| `train` | Fit each representation on the unannotated cohorts, embed all spots; batch-correct the gene features for the `harmony_*`/`combat_*` arms | minutes–hours |
 | `eval` | Annotation probes, per-class F1, donor-level bootstrap CIs | ~15 min |
 | `diagnose` | Effective rank, variance decomposition, CCA ceiling, scIB panel | ~1 h |
 | `ablate` | Retrain with permuted morphology targets | ~15 min |
-| `biosignal` | Per-gene ridge R² and GSEA, one organ at a time (`biosignal.tissues`) | ~10 min |
+| `biosignal` | Per-gene ridge R², GSEA and the per-set mean ΔR² tests, one organ at a time (`biosignal.tissues`) | ~15 min |
 | `integrate` | Harmony / BBKNN / ComBat / scVI scored on batch and biology; requires `train` and `eval` | ~2 h |
 | `results` | Join every stage's scores into one long-format table and check they agree | seconds |
 | `figures` | Regenerate every table and figure from the artefacts above | ~2 min |
@@ -150,18 +150,20 @@ make all CONFIG=configs/cancerfoundation.yaml
 
 | Manuscript artefact | Command | Output |
 | --- | --- | --- |
-| Dataset appendix | `make data figures` | `figures/table_datasets.{csv,tex}`, `data/cohort.csv` |
+| Table 4 — dataset composition | `make data figures` | `figures/table_datasets.{csv,tex}`, `data/cohort.csv` |
 | Table 1 — cross-donor annotation F1 | `make all` | `figures/table_annotation_heldout_donor_cross_donor_organ_balanced.{csv,tex}` |
-| Per-organ breakdown behind Table 1 | `make all` | `figures/table_annotation_by_organ_heldout_donor_cross_donor.{csv,tex}` |
-| Fold hierarchy | `make all` | `figures/table_fold_hierarchy.{csv,tex}` |
+| Table 7 — per-organ breakdown of Table 1 | `make all` | `figures/table_annotation_by_organ_heldout_donor_cross_donor.{csv,tex}` |
+| Table 6 — fold hierarchy | `make all` | `figures/table_fold_hierarchy.{csv,tex}` |
 | Table 2 — effective rank | `make diagnose figures` | `figures/table_effective_rank.{csv,tex}` |
 | Table 3 — patch-shuffle ablation | `make ablate figures` | `figures/table_patch_shuffle.{csv,tex}`, `ablation/paired_deltas.csv` |
-| Figure 2 — per-gene R² | `make biosignal figures` | `figures/fig_per_gene_r2.pdf`, `figures/fig_per_gene_r2_vs_control.pdf` |
+| Figure 3 — per-gene R² | `make biosignal figures` | `figures/fig_per_gene_r2.pdf`, `figures/fig_per_gene_r2_vs_control.pdf` |
 | Per-gene R², other organs | `make biosignal SET="biosignal.tissues=lung"` | `biosignal/lung/per_gene_r2.csv` |
-| Figures 4–6 — UMAPs | `make figures` | `figures/fig_umap.pdf` |
+| Figure 4 — Hallmark dot plot | `make biosignal figures` | `biosignal/skin/setmean_hallmark_<level>.{csv,json}`, `figures/fig_setmean_hallmark_<level>.pdf` |
+| Figures 5–7 — UMAPs | `make figures` | `figures/fig_umap.pdf` |
 | §4.2 — batch effects | `make diagnose` | `diagnostics/{summary.json,variance_decomposition.csv,cca_ceiling.json,scib_panel.csv}` |
 | §4.2 — integration methods | `make integrate results figures` | `figures/table_integration[_<organ>].{csv,tex}`, `integration/{integration.csv,integration_deltas.csv}` |
 | Appendix — alternative architectures | `make train eval SET="models.names=pca,pca_oracle,ae,cdann,dual_decoder,gene_ae,infonce,jepa"` | `eval/results.csv` |
+| Table 8 — batch correction under guidance | `make all integrate` then `make paper-tables` | `paper_tables/table_batch_correction.tex`, `eval/deltas.csv` |
 
 `make paper-tables` builds the cross-run tables covering all three backbones. No stage
 rebuilds them, so rerun it after any change to a run's `eval`, `ablate` or `integrate`
@@ -313,7 +315,7 @@ vgtfm/models/nn.py         the training loop and blocks every neural model share
 vgtfm/evaluate/            probes, protocols, donor bootstrap, reporting, eval stage
 vgtfm/diagnostics/         effective rank, variance, CCA, scIB, integration
 vgtfm/ablations/           patch-shuffle transforms and the ablation stage
-vgtfm/biosignal/           expression index, ridge R², GSEA
+vgtfm/biosignal/           expression index, ridge R², GSEA, per-set mean ΔR² tests
 vgtfm/figures/             tables (CSV + LaTeX) and plots
 vgtfm/embed/               optional: raw slides → foundation-model features
 tests/                     unit tests, stage tests on a synthetic cohort, and an
