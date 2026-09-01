@@ -42,10 +42,11 @@ models:
   pca_oracle_matched_components: 32
   ae:
     latent_dim: 128
-    # Linear layers per side: 2 gives encoder 1152 -> 512 -> 128 and decoder
-    # 128 -> 512 -> 3072 for Geneformer + Midnight (see models/nn.py:layer_sizes).
-    enc_layers: 2
-    dec_layers: 2
+    # Linear layers per side: 3 gives encoder 1152 -> 512 -> 256 -> 128 and
+    # decoder 128 -> 512 -> 1024 -> 3072 for Geneformer + Midnight (see
+    # models/nn.py:layer_sizes). This is the width the manuscript reports.
+    enc_layers: 3
+    dec_layers: 3
     dropout: 0.1
     lr: 0.001
     weight_decay: 0.01

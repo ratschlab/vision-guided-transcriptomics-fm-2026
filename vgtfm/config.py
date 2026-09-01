@@ -133,14 +133,18 @@ class AEConfig:
     At inference the decoder is discarded and the deployed embedding is
     ``LayerNorm(Encoder(gene))``.
 
-    ``enc_layers`` / ``dec_layers`` count Linear layers. The default of 2 gives
-    encoder 1152 -> 512 -> 128 and decoder 128 -> 512 -> 3072 for
-    Geneformer + Midnight.
+    ``enc_layers`` / ``dec_layers`` count Linear layers. The default of 3 gives
+    encoder 1152 -> 512 -> 256 -> 128 and decoder 128 -> 512 -> 1024 -> 3072 for
+    Geneformer + Midnight. The widths are interpolated geometrically and rounded
+    to powers of two (:func:`~vgtfm.models.nn.layer_sizes`), so on a narrow gene
+    substrate a step can come out width-preserving: scGPT gives
+    512 -> 256 -> 256 -> 128 and CancerFoundation 256 -> 256 -> 128 -> 128. Those
+    layers still carry BatchNorm, GELU and dropout, so they are not identities.
     """
 
     latent_dim: int = 128
-    enc_layers: int = 2
-    dec_layers: int = 2
+    enc_layers: int = 3
+    dec_layers: int = 3
     dropout: float = 0.1
     lr: float = 1e-3
     weight_decay: float = 1e-2
