@@ -119,8 +119,8 @@ class Registry:
         per patient (USZ), so the two agree wherever a fold or an interval is built.
 
         They part company on the unannotated training cohorts, which is exactly
-        where the train-split diagnostics look — 76 slides but 56 patients, because
-        De Zuani contributes six patients with two to six slides each. Reporting a
+        where the train-split diagnostics look — 96 slides but 68 patients, because
+        De Zuani contributes eight patients with four to six slides each. Reporting a
         "between-donor" fraction off the slide-level key there makes it identical to
         the between-slide one by construction, and makes the patient-leakage gap
         unmeasurable rather than merely small.

@@ -188,7 +188,7 @@ The pipeline's entry point is a cached merged dataset of frozen features: one Hu
 `DatasetDict` per gene-side backbone, holding both modalities per spot.
 
 ```
-<data_root>/<combo>/merged_dataset/       dataset_dict.json, train/, validation/, test/
+<data_root>/<combo>/merged_dataset/       dataset_dict.json, train/, test/
 ```
 
 | Column | Type |

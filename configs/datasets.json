@@ -1,5 +1,5 @@
 {
-  "_comment": "Cohort registry for the vgtfm pipeline. Trimmed to the ten Visium cohorts the manuscript uses; the TCGA entries of the upstream registry are DeepSpot-generated virtual spatial transcriptomics, not measured data, and are excluded. 'split' is the cohort-level train/val/test assignment baked into the cached merged datasets. 'annotation_col' names the pathologist annotation in the raw .h5ad (null = unannotated, used for representation training only). 'donor_pattern' is a regex whose first group extracts the patient key from a sample id; null means every slide is its own patient. It is used for REPORTING only (the dataset table's donor counts) -- SpotTable.donor, which drives the folds and the donor-level bootstrap, still parses TuPro ids and falls back to the slide id, and changing that would move published numbers. 'citation.accession' and 'citation.bibkey' feed the generated dataset table; bibkey must match a key in the manuscript's .bib, which does not live in this repo.",
+  "_comment": "Cohort registry for the vgtfm pipeline.",
   "datasets": {
     "10x_TuPro": {
       "name": "10x TuPro",
@@ -255,27 +255,27 @@
         },
         {
           "id": "P24-T1",
-          "split": "test"
+          "split": "train"
         },
         {
           "id": "P24-T2",
-          "split": "test"
+          "split": "train"
         },
         {
           "id": "P25-B1",
-          "split": "test"
+          "split": "train"
         },
         {
           "id": "P25-B2",
-          "split": "validation"
+          "split": "train"
         },
         {
           "id": "P25-T1",
-          "split": "validation"
+          "split": "train"
         },
         {
           "id": "P25-T2",
-          "split": "validation"
+          "split": "train"
         }
       ]
     },
@@ -343,19 +343,19 @@
         },
         {
           "id": "P19-B1",
-          "split": "test"
+          "split": "train"
         },
         {
           "id": "P19-B2",
-          "split": "test"
+          "split": "train"
         },
         {
           "id": "P19-T1",
-          "split": "validation"
+          "split": "train"
         },
         {
           "id": "P19-T2",
-          "split": "validation"
+          "split": "train"
         }
       ]
     },
@@ -415,11 +415,11 @@
         },
         {
           "id": "MW-G-039a-vis",
-          "split": "test"
+          "split": "train"
         },
         {
           "id": "MW-G-040a-vis",
-          "split": "validation"
+          "split": "train"
         }
       ]
     },
@@ -479,11 +479,11 @@
         },
         {
           "id": "MW-D-049a-vis",
-          "split": "test"
+          "split": "train"
         },
         {
           "id": "MW-D-050a-vis",
-          "split": "validation"
+          "split": "train"
         }
       ]
     },
@@ -563,11 +563,11 @@
         },
         {
           "id": "MW-B-014a-vbu",
-          "split": "test"
+          "split": "train"
         },
         {
           "id": "MW-B-015a-vis",
-          "split": "validation"
+          "split": "train"
         }
       ]
     },
@@ -627,11 +627,11 @@
         },
         {
           "id": "MW-M-059a-vis",
-          "split": "test"
+          "split": "train"
         },
         {
           "id": "MW-M-060a-vis",
-          "split": "validation"
+          "split": "train"
         }
       ]
     },
@@ -711,11 +711,11 @@
         },
         {
           "id": "MW-O-029a-vis",
-          "split": "test"
+          "split": "train"
         },
         {
           "id": "MW-O-030a-vis",
-          "split": "validation"
+          "split": "train"
         }
       ]
     }

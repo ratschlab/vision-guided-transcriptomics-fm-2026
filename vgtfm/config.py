@@ -77,7 +77,9 @@ class DataConfig:
     # Key into paths.merged_datasets. Also names the feature cache directory.
     substrate: str = "geneformer"
     annotation_col: str = "annotation"
-    # Restrict to these HF splits (the cached datasets ship train/validation/test).
+    # Restrict to these HF splits. The registry ships only train/test, so
+    # `validation` is carried here for datasets cached under an older registry;
+    # a name absent from the DatasetDict is skipped, not an error.
     splits: tuple[str, ...] = ("train", "validation", "test")
     # Optional whitelist / blacklist of sample_ids (empty = no filtering).
     include_samples: tuple[str, ...] = ()

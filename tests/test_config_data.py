@@ -311,6 +311,32 @@ def test_the_shipped_registry_is_well_formed():
     assert isinstance(reg, Registry)
 
 
+def test_the_shipped_registry_splits_on_annotation_and_nothing_else():
+    """Annotation decides the split, so `train.fit_split` never sees a label.
+
+    Every slide of an unannotated cohort is fitted on; the annotated cohorts are the
+    whole of `test`. Nothing is held back into a cohort-level `validation` split —
+    the neural models carve their early-stopping rows out of the fit set itself
+    (:func:`vgtfm.models.nn.train_val_split`), so a third split would only shrink
+    the representation's training set without being used.
+
+    The counts are pinned because the manuscript quotes them: a cohort added here
+    changes what the paper must say about the fit.
+    """
+    reg = load_registry(REPO / "configs" / "datasets.json")
+    annotated = set(reg.annotated_cohorts())
+    cohort_of = reg.sample_dataset
+    by_split: dict[str, list[str]] = {}
+    for sid, split in reg.sample_split.items():
+        expected = "test" if cohort_of[sid] in annotated else "train"
+        assert split == expected, f"{sid} ({cohort_of[sid]}) is '{split}', not '{expected}'"
+        by_split.setdefault(split, []).append(sid)
+
+    assert sorted(by_split) == ["test", "train"], "the registry grew a third split"
+    assert len(by_split["train"]) == 96
+    assert len(by_split["test"]) == 24
+
+
 def test_every_shipped_donor_pattern_matches_its_own_sample_ids():
     """A typo'd regex would silently fall back to slide ids and inflate donor counts.
 
