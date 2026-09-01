@@ -592,13 +592,19 @@ def _r2_levels(per_gene: pd.DataFrame, wanted) -> list[str]:
     return [lv for lv in wanted if lv in scored] if wanted else scored
 
 
-def _fig_r2_scatter(per_gene: pd.DataFrame, out, levels: list[str]):
+def _fig_r2_scatter(per_gene: pd.DataFrame, out, levels: list[str], *, titles: bool = True):
     """Frozen versus refined per-gene R^2, one panel per fold level.
 
     The capacity control is deliberately not on these axes. It belongs on
     :func:`_fig_r2_vs_control`, where both series are at the refined width and the
     diagonal is the claim; drawn here it shares an axis with the frozen embedding and
     shows only that the two move together.
+
+    ``titles`` labels each panel with its level and mean delta-R^2, which is what a
+    multi-panel review figure needs to be readable on its own. The manuscript draws
+    one level per file and names the level in the subfigure caption, so it passes
+    ``titles=False``; ``save`` crops with a tight bounding box, so dropping the title
+    trims the panel rather than leaving a gap.
     """
     import matplotlib.pyplot as plt
 
@@ -624,11 +630,12 @@ def _fig_r2_scatter(per_gene: pd.DataFrame, out, levels: list[str]):
         ax.plot(lim, lim, "k--", lw=0.8)
         ax.axhline(0, color="#999", lw=0.6)
         ax.axvline(0, color="#999", lw=0.6)
-        ax.set_title(
-            f"{level.replace('_', '-')}\n"
-            f"refined $\\Delta R^2$ = {float(sub['delta_r2'].mean()):+.3f}",
-            fontsize=9,
-        )
+        if titles:
+            ax.set_title(
+                f"{level.replace('_', '-')}\n"
+                f"refined $\\Delta R^2$ = {float(sub['delta_r2'].mean()):+.3f}",
+                fontsize=9,
+            )
         ax.set_xlabel("$R^2$ frozen")
         ax.set_ylabel("$R^2$ refined")
     save(fig, out / "fig_per_gene_r2")
