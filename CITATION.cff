@@ -1,0 +1,56 @@
+cff-version: 1.2.0
+message: "If you use this code, please cite the preprint below."
+title: "vgtfm: vision-guided transcriptomics foundation models"
+abstract: >-
+  Code for "Slide-level batch structure limits histology-guided supervision of
+  transcriptomic foundation models". Tests whether matched H&E histology, used only
+  as a training-time supervisory signal, improves frozen transcriptomic
+  foundation-model representations (Geneformer, scGPT, CancerFoundation) of 10x
+  Visium spatial transcriptomics, and diagnoses the slide-level batch structure that
+  limits cross-modal transfer.
+type: software
+authors:
+  - family-names: McConnell
+    given-names: Ulysse
+  - family-names: Nonchev
+    given-names: Kalin
+    orcid: "https://orcid.org/0009-0001-4904-8772"
+  - family-names: Koelzer
+    given-names: Viktor H
+  - family-names: Raetsch
+    given-names: Gunnar
+repository-code: "https://github.com/ratschlab/vision-guided-transcriptomics-fm-2026"
+url: "https://www.biorxiv.org/content/10.64898/2026.09.30.755585v1"
+keywords:
+  - spatial transcriptomics
+  - transcriptomic foundation models
+  - single-cell foundation models
+  - H&E histology
+  - computational pathology
+  - cross-modal supervision
+  - multimodal representation learning
+  - batch effects
+  - data integration
+  - 10x Visium
+  - Geneformer
+  - scGPT
+  - CancerFoundation
+preferred-citation:
+  type: article
+  title: "Slide-level batch structure limits histology-guided supervision of transcriptomic foundation models"
+  authors:
+    - family-names: McConnell
+      given-names: Ulysse
+    - family-names: Nonchev
+      given-names: Kalin
+      orcid: "https://orcid.org/0009-0001-4904-8772"
+    - family-names: Koelzer
+      given-names: Viktor H
+    - family-names: Raetsch
+      given-names: Gunnar
+  journal: bioRxiv
+  publisher:
+    name: Cold Spring Harbor Laboratory
+  year: 2026
+  doi: "10.64898/2026.09.30.755585"
+  url: "https://www.biorxiv.org/content/10.64898/2026.09.30.755585v1"
