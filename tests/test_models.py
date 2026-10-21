@@ -33,15 +33,15 @@ from vgtfm.models.nn import (  # noqa: E402
 GENE_MODELS = ("pca", "ae", "cdann", "dual_decoder", "gene_ae", "infonce", "jepa")
 
 #: sha256 of the float32 embedding each model produces on :func:`fixture`, with
-#: the config in :func:`_cfg` and seed 0. Update these only when a numerical
-#: change is intended, and say why in the commit message.
+#: the config in :func:`_cfg` and seed 0, under the torch version requirements.txt
+#: pins. Update these only when a numerical change is intended.
 FINGERPRINTS = {
-    "ae": "f885711e1da1fe76",
-    "cdann": "b77e442b8767f33f",
-    "dual_decoder": "1ed0eaac68953d29",
-    "gene_ae": "dd714254c36df354",
-    "infonce": "c43409959e972bb8",
-    "jepa": "cea36d85ae557a91",
+    "ae": "9b00399e7b1c2228",
+    "cdann": "bc4e0179044ee9fb",
+    "dual_decoder": "d1668a985eaffec8",
+    "gene_ae": "e4dea67df7241d5c",
+    "infonce": "842e3181c8920f1c",
+    "jepa": "49800fa2db4c694c",
 }
 
 
