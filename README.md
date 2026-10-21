@@ -33,6 +33,8 @@ diagnosing slide-specific structure before applying such supervision.
   effective rank, variance decomposition, CCA and scIB diagnostics; per-gene R² and
   GSEA; patch-shuffle ablations; Harmony, BBKNN, ComBat and scVI batch correction.
 
+**Try it yourself:** [`notebooks/pbmc3k_embeddings.ipynb`](notebooks/pbmc3k_embeddings.ipynb)
+
 **Keywords:** spatial transcriptomics, transcriptomic foundation models, single-cell
 foundation models, H&E histology, computational pathology, cross-modal supervision,
 multimodal representation learning, batch effects, slide-level batch structure, data
