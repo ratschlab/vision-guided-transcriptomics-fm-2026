@@ -6,8 +6,12 @@ artifacts/
 logs/*
 !logs/.gitkeep
 
+# Datasets the example notebook downloads through scanpy.
+notebooks/data/
+
 # Python
 __pycache__/
+.ipynb_checkpoints/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
