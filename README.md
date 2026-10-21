@@ -1,24 +1,42 @@
 # vgtfm — vision-guided transcriptomics foundation models
 
-Code for *Slide-level batch structure limits histology-guided supervision of transcriptomic
-foundation models* ([bioRxiv](https://doi.org/10.64898/2026.09.30.755585)).
+Code for [*Slide-level batch structure limits histology-guided supervision of
+transcriptomic foundation models*](https://doi.org/10.64898/2026.09.30.755585)
+(McConnell, Nonchev, Koelzer and Rätsch, bioRxiv 2026).
 
-Spatial transcriptomics pairs spatially resolved gene expression with tissue morphology in
-the same tissue section. Transcriptomic foundation models encode such expression profiles
-into general-purpose representations, but these representations can retain slide- and
-cohort-specific variation that obscures biological signal. Here, we test whether matched
-H&E histology can improve these representations as a training-time supervisory signal
-that is discarded at inference. Across three transcriptomic foundation models,
-histology-guided supervision provides no consistent aggregate improvement in cross-donor
-annotation transfer, despite substantially stronger transfer from histology alone. We find
-that gene-expression embeddings from spot-based spatial transcriptomics are
-low-dimensional and strongly structured by slide identity, limiting the shared
-gene–morphology signal available for cross-modal transfer. Guidance benefits some
-morphologically distinctive classes but reduces held-out gene predictivity broadly across
-the transcriptome. These results suggest that cross-modal supervision can reorganize
-information already encoded in a frozen representation but cannot recover information the
-representation does not retain, highlighting the importance of diagnosing slide-specific
-structure before applying such supervision.
+Spatial transcriptomics pairs spatially resolved gene expression with tissue morphology
+in the same tissue section. Transcriptomic foundation models encode such expression
+profiles into general-purpose representations, but these representations can retain
+slide- and cohort-specific variation that obscures biological signal. Here, we test
+whether matched H&E histology can improve these representations as a training-time
+supervisory signal that is discarded at inference. Across three transcriptomic
+foundation models, histology-guided supervision provides no consistent aggregate
+improvement in cross-donor annotation transfer, despite substantially stronger transfer
+from histology alone. We find that gene-expression embeddings from spot-based spatial
+transcriptomics are low-dimensional and strongly structured by slide identity, limiting
+the shared gene–morphology signal available for cross-modal transfer. Guidance benefits
+some morphologically distinctive classes but reduces held-out gene predictivity broadly
+across the transcriptome. These results suggest that cross-modal supervision can
+reorganize information already encoded in a frozen representation but cannot recover
+information the representation does not retain, highlighting the importance of
+diagnosing slide-specific structure before applying such supervision.
+
+**At a glance**
+
+- **Question:** can matched H&E histology, used only as a training-time target, refine
+  frozen transcriptomic foundation-model embeddings of spatial transcriptomics spots?
+- **Gene-side models:** Geneformer, scGPT and CancerFoundation. **Histology model:**
+  Midnight.
+- **Data:** 120 10x Genomics Visium slides from ten cohorts across eight tissues (skin,
+  lung, kidney, brain, lymph node, bladder, mesothelium, ovary).
+- **Evaluation:** cross-donor, cross-region and cross-replicate annotation transfer;
+  effective rank, variance decomposition, CCA and scIB diagnostics; per-gene R² and
+  GSEA; patch-shuffle ablations; Harmony, BBKNN, ComBat and scVI batch correction.
+
+**Keywords:** spatial transcriptomics, transcriptomic foundation models, single-cell
+foundation models, H&E histology, computational pathology, cross-modal supervision,
+multimodal representation learning, batch effects, slide-level batch structure, data
+integration, 10x Visium, Geneformer, scGPT, CancerFoundation, Midnight.
 
 ![Gene counts and the matched H&E patch at each Visium spot are encoded by frozen foundation models; an encoder-decoder is trained to reconstruct the morphology embedding from the gene embedding, and its bottleneck is the refined representation read at inference.](docs/overview.png)
 
@@ -272,17 +290,20 @@ make format      # apply the formatter
 
 ## Citation
 
+If you use this code, please cite the
+[preprint](https://www.biorxiv.org/content/10.64898/2026.09.30.755585v1):
+
 ```bibtex
-@article{McConnell2026.09.30.755585,
-  author    = {McConnell, Ulysse and Nonchev, Kalin and Koelzer, Viktor H and R{\"a}tsch, Gunnar},
-  title     = {Slide-level batch structure limits histology-guided supervision of transcriptomic foundation models},
-  journal   = {bioRxiv},
-  year      = {2026},
-  elocation-id = {2026.09.30.755585},
-  doi       = {10.64898/2026.09.30.755585},
-  publisher = {Cold Spring Harbor Laboratory},
-  URL       = {https://www.biorxiv.org/content/early/2026/10/05/2026.09.30.755585}
+@article{mcconnell2026slide,
+  title={Slide-level batch structure limits histology-guided supervision of transcriptomic foundation models},
+  author={McConnell, Ulysse and Nonchev, Kalin and Koelzer, Viktor H and Raetsch, Gunnar},
+  journal={bioRxiv},
+  pages={2026--09},
+  year={2026},
+  publisher={Cold Spring Harbor Laboratory}
 }
 ```
 
-Per-cohort citations are in `configs/datasets.json`.
+Per-cohort citations and accessions are in the `citation` field of each entry in
+`configs/datasets.json`, reproduced by the generated `figures/table_datasets.tex`.
+
