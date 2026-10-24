@@ -1,8 +1,34 @@
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
+[![bioRxiv](https://img.shields.io/badge/bioRxiv-2026.09.30.755585-blue)](https://www.biorxiv.org/content/10.64898/2026.09.30.755585v1)
+[![Hugging Face](https://img.shields.io/badge/Hugging%20Face-umcconnell%2Fvgtfm-yellow)](https://huggingface.co/umcconnell/vgtfm)
+
 # vgtfm — vision-guided transcriptomics foundation models
 
-Code for [*Slide-level batch structure limits histology-guided supervision of
-transcriptomic foundation models*](https://doi.org/10.64898/2026.09.30.755585)
-(McConnell, Nonchev, Koelzer and Rätsch, bioRxiv 2026).
+This repository contains the code of the paper "[Slide-level batch structure limits
+histology-guided supervision of transcriptomic foundation
+models](https://doi.org/10.64898/2026.09.30.755585)".
+
+**Authors**: Ulysse McConnell, Kalin Nonchev, Viktor Hendrik Koelzer, and Gunnar Rätsch
+
+The preprint is available [here](https://www.biorxiv.org/content/10.64898/2026.09.30.755585v1).
+
+## News
+
+  - [10.2026] [Slide-level batch structure limits histology-guided supervision of
+    transcriptomic foundation models](https://www.biorxiv.org/content/10.64898/2026.09.30.755585v1)
+    is available on bioRxiv.
+  - [09.2026] Introducing [Aurora](https://www.auroraomics.org) - a no-code platform for
+    virtual spatial transcriptomics from H&E images. Aurora makes virtual spatial
+    transcriptomics accessible without requiring users to have their own GPUs, with a
+    fully automated workflow designed to ensure that spatial transcriptomics predictions
+    are performed correctly. Try the interactive [Aurora demo](https://www.auroraomics.org/demo).
+  - [06.2026] New generation model [DeepSpot-M: a multimodal foundation model for
+    transcriptome-wide virtual spatial transcriptomics from
+    histology](https://www.medrxiv.org/content/10.64898/2026.06.19.26356060v1).
+    [Code.](https://github.com/ratschlab/DeepSpotM)
+
+## Can histology refine transcriptomic foundation-model embeddings of spatial transcriptomics?
 
 Spatial transcriptomics pairs spatially resolved gene expression with tissue morphology
 in the same tissue section. Transcriptomic foundation models encode such expression
@@ -292,20 +318,25 @@ make format      # apply the formatter
 
 ## Citation
 
-If you use this code, please cite the
-[preprint](https://www.biorxiv.org/content/10.64898/2026.09.30.755585v1):
+In case you found our work useful, please consider citing us:
 
 ```bibtex
 @article{mcconnell2026slide,
   title={Slide-level batch structure limits histology-guided supervision of transcriptomic foundation models},
-  author={McConnell, Ulysse and Nonchev, Kalin and Koelzer, Viktor H and Raetsch, Gunnar},
+  author={McConnell, Ulysse and Nonchev, Kalin and Koelzer, Viktor H and R{\"a}tsch, Gunnar},
   journal={bioRxiv},
   pages={2026--09},
   year={2026},
+  doi={10.64898/2026.09.30.755585},
   publisher={Cold Spring Harbor Laboratory}
 }
 ```
 
 Per-cohort citations and accessions are in the `citation` field of each entry in
 `configs/datasets.json`, reproduced by the generated `figures/table_datasets.tex`.
+
+## Contact
+
+In case you have questions, please get in touch with
+[Kalin Nonchev](https://bmi.inf.ethz.ch/people/person/kalin-nonchev).
 
